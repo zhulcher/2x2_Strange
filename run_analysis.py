@@ -17,7 +17,7 @@
         #         store the K candidate mother in place3
         # loop over truth particles (again again):
         #     if MIP_michel:   
-        #         store the K candidate mother in place3
+        #         store the K candidate mother in place4
 
     #compute efficiency and purity
     
