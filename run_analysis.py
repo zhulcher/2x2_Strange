@@ -1,24 +1,64 @@
 # SKELETON
 
-# 1. Read in regular analysis file using SPINE
-# 2. dump Hip/Mip prediction/truth to h5 and store in a file to be read in
+# 1. Read in regular analysis file using SPINE (FILE1)
+# 2. dump Hip/Mip prediction/truth to h5 and store in a file to be read in (FILE2)
 
 
-#loop over number of events in one of the files
-    #read in the event of the coresponding to the analysis file
-    #read in the (same) event coresponding to the (Hip/Mip) file
+#min_hip_range=something
+#min_forwardness=something
+#hip_to_mip_dist=something
+#mip_range=[something,something]
+#michel_dist=something
+
+#lambda_decay_len=something
+#lambda_kinematic_bounds=[something,something]
+
+#potential_K=[]
+#predicted_K=[]
+#predicted_K_michel=[]
+
+#predicted_L=[]
+
+
+#loop over number of events in (FILE1)
+    #read in the event of FILE1
+    #read in the (same) event in FILE2
+
+    #FIND PRIMARY KAONS LOOP---------------------
         # loop over particles:
-        #     if HIP_candidate:
-        #         store the K candidate mother in place1
-        # loop over particles (again):
-        #     if MIP_candidate:
-        #        store the K candidate mother in place2
-        # loop over particles (again again):
-        #     if MIP_michel:   
-        #         store the K candidate mother in place4
+            #if not hip.is_primary: continue
+            #if HIP_range<min_hip_len : continue
+            #if forwardness<min_forwardness: continue
+            ###
+            #some cut on extra daughters I need to think more about
+            ###
+            #potential_K+=[particle.trackid]
 
-        #true_lambdas=len(true_lambda(particle_list))
-        #true_K=len(true_k_with_mu(particle_list))
+        # loop over particles:
+            #if MIP_range<mip_range[0]: continue
+            #if MIP_range>mip_range[1]: continue
+            # z=dist_hipend_mipstart
+            #if z[0]>min_hip_to_mip_dist:continue
+            ###
+            #some cut on extra daughters I need to think more about
+            ###
+            #predicted_K+=[z[1],particle.trackid]
+
+        # loop over particles (again for Michels):
+            #z=MIP_to_michel
+            #if z[0]>michel_dist:continue
+            #predicted_K_michel+=[z[1]+[particle.trackid]]
+    #END FIND PRIMARY KAONS LOOP---------------------
+
+    #FIND LAMBDAS LOOP---------------------------
+        # loop over particles (p1):
+            #if not potential_lambda_hip: continue
+            #loop over particles (p2):
+                #if not potential_lambda_mip: continue
+                #if lambda_decay_len<lambda_decay_len: continue
+                #if lambda_kinematic not contained within lambda_kinematic_bounds: continue
+                #predicted_L+=[particle.trackid]
+    #END FIND LAMBDAS LOOP---------------------------
 
     #compute efficiency and purity
     

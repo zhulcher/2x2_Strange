@@ -2,18 +2,22 @@ from spine.utils.globals import *
 import numpy as np
 from scipy import stats
 
+#things I would like added in truth:
+    #parent_pdg
+    #children_id
 
-import moduleboundaries
+
+# import moduleboundaries
 
 HIP=2
 MIP=3
 
-def is_contained(pos,eps):
+# def is_contained(pos,eps):
 
-    for i in range(3):
-        if pos[i]<moduleboundaries[i][0]+eps: return False
-        if pos[i]>moduleboundaries[i][1]-eps: return False
-    return True
+#     for i in range(3):
+#         if pos[i]<moduleboundaries[i][0]+eps: return False
+#         if pos[i]>moduleboundaries[i][1]-eps: return False
+#     return True
 
     #if this is not defined per particle, check if a position is within the detector bounds
 
@@ -24,7 +28,7 @@ def HIPMIP_pred(particle,sparse3d_pcluster_semantics_HM,cluster3d_pcluster):
         #I need to read in pcluster_semantics_HM structure and cluster3d_pcluster
             #The Hip/Mip semantics per voxel are stored in the pcluster_semantics_HM structure
 
-    if len(particle.voxels)==0:return None
+    if len(particle.depositions)==0:return None
     shapelist=[]
     voxelmap = cluster3d_pcluster
     # truthinfo = particle_pcluster
@@ -46,9 +50,9 @@ def HIPMIP_pred(particle,sparse3d_pcluster_semantics_HM,cluster3d_pcluster):
 
     return stats.mode(shapelist)
 
-def HIP_candidate(particle): 
+def HIP_range(particle): 
     if HIPMIP_pred(particle,etc)!=HIP: return 0
-    if not particle.is_contained(): return 0
+    if not particle.is_contained: return 0
     return np.linalg.norm(particle.position-particle.end_position)
     #returns HIP length if HIP candidate which satisfying containment cuts
     #returns 0 if not HIP/ not contained
@@ -61,15 +65,15 @@ def forwardness(particle):
 
 def dist_hipend_mipstart(particle,hip_candidates):
     if HIPMIP_pred(particle,etc)!=MIP: return np.inf
-    shortest_dist=np.inf
+    shortest_dist=np.inf,None
     for h in hip_candidates:
         if np.linalg.norm(h.end_position-particle.position)<shortest_dist: shortest_dist=np.linalg.norm(hip_candidates.end_position-particle.position)
-    return shortest_dist
+    return shortest_dist,h.trackid
     #if particle is not a MIP, return inf
     #if return distance to nearest hip end
 
-def MIP_valid(particle):
-    if not particle.is_contained(): return 0
+def MIP_range(particle):
+    if not particle.is_contained: return 0
     return np.linalg.norm(particle.end_position-particle.position)
     #if not contained, return 0
     #returns mip range
@@ -86,20 +90,20 @@ def extra_daughters(particle,particle_list):
     #might have to do something about particles which arent close which point back or (not now, eventually, im not looking at this now) do some more complicated parentage prediction like a directed GNN to catch photons or longer neutrals
     #or particles which are connected but are just the product of the busy environment
 
-def MIP_michel(mip,particle_list):
+def MIP_to_michel(michel,kmupairs):
     mindist=np.inf
-    for i in particle_list:
-        if i.shape==MICHL_SHP:
-            dist=np.linalg.norm(i.position-mip.position)
-            mindist=np.min(mindist,dist)
-    return mindist
+    if michel.shape!=MICHL_SHP:return np.inf
+    for p in kmupairs:
+        dist=np.linalg.norm(michel.position-p[1].end_position)
+        mindist=np.min(mindist,dist)
+    return mindist,p
     # return 
     #returns distance from MIP end to start of nearest michel
     
 def true_k_with_mu(particle_list):#returns true if cluster is a contained muon with true kaon as parent
     K_pdgs={}
     for p in range(particle_list):
-        if p.parent_pdg==321 and ((p.is_contained() and abs(p.pdg)==13) or p.processid=="4::121"):
+        if p.parent_pdg==321 and ((p.is_contained and abs(p.pdg)==13) or p.processid=="4::121"):
             if p.parent_id not in K_pdgs: K_pdgs[p.parent_id]=[]
             K_pdgs[p.parent_id].append(abs(p.pdg)*(p.processid!="4::121"))
     for i in list(K_pdgs.keys()):
@@ -110,7 +114,7 @@ def true_k_with_mu(particle_list):#returns true if cluster is a contained muon w
 def true_lambda(particle_list): #returns pdgcodes for true lambda (pi+p) contained pairs
     lambda_pdgs={}
     for p in range(particle_list):
-        if p.parent_pdg==3122 and ((p.is_contained() and abs(p.pdg) in [2212,211]) or p.processid=="4::121"):
+        if p.parent_pdg==3122 and ((p.is_contained and abs(p.pdg) in [2212,211]) or p.processid=="4::121"):
             if p.parent_id not in lambda_pdgs: lambda_pdgs[p.parent_id]=[]
             lambda_pdgs[p.parent_id].append(abs(p.pdg)*(p.processid!="4::121"))
     for i in list(lambda_pdgs.keys()):
@@ -120,10 +124,20 @@ def true_lambda(particle_list): #returns pdgcodes for true lambda (pi+p) contain
     # if particle.parent_pdg==3122: return particle.parent_id
     #TBD
 
+def potential_lambda_hip(hip):
+    if not hip.is_contained: return False
+    if HIPMIP_pred(hip,etc)!=HIP: return False
+    return True
+
+def potential_lambda_mip(mip):
+    if not mip.is_contained: return False
+    if HIPMIP_pred(mip,etc)!=MIP: return False
+    return True
+
 def potential_lambda(hip,mip):
-    if not hip.is_contained(): return np.inf
-    if not mip.is_contained(): return np.inf
-    if HIPMIP_pred(hip,etc)!=HIP: return np.inf
+    
+    if not mip.is_contained: return np.inf
+    
     if HIPMIP_pred(mip,etc)!=MIP: return np.inf
     return np.linalg.norm(hip.position-mip.position)
     # if either are uncontained, return inf
@@ -139,4 +153,4 @@ def lambda_decay_len(hip,mip):
 def lambda_kinematic(hip,mip):
     LAM_MASS=1115.60 #lambda mass in MeV
     return 2*(PROT_MASS*mip.KE+hip.KE*PION_MASS-np.dot(hip.p(),mip.p()))+(PROT_MASS+PI_MASS)**2-LAM_MASS**2
-    #something like m_Lambda^2-(m_pi+m_p)^2 estimate in MeV, there are other kinematic cuts
+    #other kinematic values, i.e. Lambda Kaon separation observable
