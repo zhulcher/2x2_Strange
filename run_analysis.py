@@ -57,7 +57,7 @@
                 #if not potential_lambda_mip: continue
                 #if lambda_decay_len<lambda_decay_len: continue
                 #if lambda_kinematic not contained within lambda_kinematic_bounds: continue
-                #predicted_L+=[particle.trackid]
+                #predicted_L+=[[p1.trackid,p2.trackid]]
     #END FIND LAMBDAS LOOP---------------------------
 
     #compute efficiency and purity
