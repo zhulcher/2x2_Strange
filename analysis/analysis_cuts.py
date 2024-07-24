@@ -3,7 +3,6 @@ import numpy as np
 from scipy import stats
 
 #things I would like added in truth:
-    #parent_pdg
     #children_id
 
 
@@ -102,7 +101,7 @@ def true_k_with_mu(particle_list):
     #returns true if cluster is a contained muon with true kaon as parent
     K_pdgs={}
     for p in range(particle_list):
-        if p.parent_pdg==321 and ((p.is_contained and abs(p.pdg)==13) or p.processid=="4::121"):
+        if p.parent_pdg_code==321 and ((p.is_contained and abs(p.pdg)==13) or p.processid=="4::121"):
             if p.parent_id not in K_pdgs: K_pdgs[p.parent_id]=[]
             K_pdgs[p.parent_id].append(abs(p.pdg)*(p.processid!="4::121"))
     for i in list(K_pdgs.keys()):
@@ -112,10 +111,10 @@ def true_k_with_mu(particle_list):
 
 def true_lambda(particle_list):
     #returns pdgcodes for true lambda (pi+p) contained pairs
-    #if particle.parent_pdg==3122: return particle.parent_id
+    #if particle.parent_pdg_code==3122: return particle.parent_id
     lambda_pdgs={}
     for p in range(particle_list):
-        if p.parent_pdg==3122 and ((p.is_contained and abs(p.pdg) in [2212,211]) or p.processid=="4::121"):
+        if p.parent_pdg_code==3122 and ((p.is_contained and abs(p.pdg) in [2212,211]) or p.processid=="4::121"):
             if p.parent_id not in lambda_pdgs: lambda_pdgs[p.parent_id]=[]
             lambda_pdgs[p.parent_id].append(abs(p.pdg)*(p.processid!="4::121"))
     for i in list(lambda_pdgs.keys()):
@@ -142,14 +141,12 @@ def potential_lambda(hip,mip):
 #TODO something else to check what other particles begin near the lambda start point.
 # I only want a proton and a pion, nothing else
     
-    
 def lambda_decay_len(hip,mip):
     #return distance from some notion of mutual start point to vertex
     guess_start=(hip.position+mip.position)/2
     neutrino_int=(neutrino associated to interaction/hip/mip).position
     return np.linalg.norm(guess_start-neutrino_int)
    
-
 def lambda_kinematic(hip,mip):
     #other kinematic values, i.e. Lambda Kaon separation observable
     LAM_MASS=1115.60 #lambda mass in MeV
