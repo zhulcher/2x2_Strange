@@ -48,8 +48,10 @@ def HIPMIP_pred(particle,sparse3d_pcluster_semantics_HM,cluster3d_pcluster):
     cluster3d_pcluster: ????????
         Map from particle object to voxels associated with that particle object
 
-    Returns?????????
+    Returns
     -------
+    int
+        Semantic segmentation prediction including HIP/MIP for a cluster
     '''
 
     #TODO I don't believe for a second I have the logic for this one right yet.
@@ -81,8 +83,10 @@ def HIP_range(particle):
     particle : spine.Particle
         Particle object with cluster information
 
-    Returns?????????
+    Returns
     -------
+    float
+        Range of particle
     '''
     if HIPMIP_pred(particle,etc)!=HIP: return 0
     if not particle.is_contained: return 0
@@ -98,8 +102,10 @@ def forwardness(particle):
     particle : spine.Particle
         Particle object with cluster information
     
-    Returns?????????
+    Returns
     -------
+    float
+        Angle between particle direction and beam
     '''
     return np.arccos(particle.momentum[2]/np.linalg.norm(particle.momentum))
     
@@ -117,8 +123,11 @@ def dist_hipend_mipstart(particle,hip_candidates):
     hip_candidates: List(List(spine.Particle))
         List of spine particle objects corresponding to identified kaons, with the associated event number
     
-    Returns?????????
+    Returns
     -------
+    (float,[int, spine.Particle])
+        Distance from hip to mip candidate and a list of event number and identified kaon candidate 
+
     '''
     if HIPMIP_pred(particle,etc)!=MIP: return (np.inf, None)
     shortest_dist=(np.inf, None)
@@ -126,7 +135,7 @@ def dist_hipend_mipstart(particle,hip_candidates):
         if np.linalg.norm(h.end_position-particle.position)<shortest_dist:
             shortest_dist=np.linalg.norm(hip_candidates.end_position-particle.position)
             hfinal=h
-    return shortest_dist,hfinal
+    return (shortest_dist,hfinal)
    
 def MIP_range(particle):
     '''
@@ -137,8 +146,10 @@ def MIP_range(particle):
     particle : spine.Particle
         Particle object with cluster information
     
-    Returns?????????
+    Returns
     -------
+    float
+        Range of particle
     '''
     if not particle.is_contained: return 0
     return np.linalg.norm(particle.end_position-particle.position)
@@ -154,8 +165,10 @@ def daughters(particle,particle_list):
     particle_list: List(spine.Particle)
         List of spine particle objects
     
-    Returns?????????
+    Returns
     -------
+        np.ndarray
+            shape (6) number of daughters with particular semantic segmentation prediction 
     '''
     #TODO the logic from one isn't right yet. I need to find daughters which are only from hard scattering (probably hip), etc. 
         #something like the logic in true_k_with_mu, but without truth information obviously
@@ -181,15 +194,17 @@ def MIP_to_michel(michel,kmupairs):
     kmupairs: List([int,spine.Particle,spine.Particle])
         List of spine particle objects corresponding to identified k/mu pairs along with the associated event number
     
-    Returns?????????
+    Returns
     -------
+    (float,[int, spine.Particle,spine.Particle])
+        Distance from michel to mip candidate and a list of event number,identified kaon candidate, identified muon candidate
     '''
     mindist=np.inf
     if michel.shape!=MICHL_SHP:return np.inf
     for p in kmupairs:
         dist=np.linalg.norm(michel.position-p[1].end_position)
         mindist=np.min(mindist,dist)
-    return mindist,p
+    return (mindist,p)
     
 def true_k_with_mu(particle_list):
     '''
@@ -200,8 +215,10 @@ def true_k_with_mu(particle_list):
     particle_list: List(spine.Particle)
         List of spine particle objects
     
-    Returns?????????
+    Returns
     -------
+    List
+        Shape (n) track ids for true kaons satisfying cuts
     '''
     K_pdgs={}
     for p in range(particle_list):
@@ -222,8 +239,10 @@ def true_lambda(particle_list):
     particle_list: List(spine.Particle)
         List of spine particle objects
     
-    Returns?????????
+    Returns
     -------
+    List([int,int])
+        List of contained pion/proton pairs which originate from true lambdas
     '''
     lambda_pdgs={}
     for p in range(particle_list):
@@ -244,8 +263,10 @@ def potential_lambda_hip(hip):
     hip: spine.Particle
         spine particle object
     
-    Returns?????????
+    Returns
     -------
+    bool
+        True iff particle is a contained predicted hip
     '''
     if not hip.is_contained: return False
     if HIPMIP_pred(hip,etc)!=HIP: return False
@@ -260,8 +281,10 @@ def potential_lambda_mip(mip):
     mip: spine.Particle
         spine particle object
     
-    Returns?????????
+    Returns
     -------
+    bool
+        True iff particle is a contained predicted mip
     '''
     if not mip.is_contained: return False
     if HIPMIP_pred(mip,etc)!=MIP: return False
@@ -278,8 +301,10 @@ def potential_lambda(hip,mip):
     mip: spine.Particle
         spine particle object
     
-    Returns?????????
+    Returns
     -------
+    float
+        distance from start point of two given particles
     '''
     return np.linalg.norm(hip.position-mip.position)
 
@@ -297,8 +322,10 @@ def lambda_decay_len(hip,mip):
     mip: spine.Particle
         spine particle object
     
-    Returns?????????
+    Returns
     -------
+    float
+        distance from lambda decay point to vertex of interaction
     '''
     guess_start=(hip.position+mip.position)/2
     neutrino_int=(neutrino associated to interaction/hip/mip).position
@@ -316,8 +343,10 @@ def lambda_kinematic(hip,mip):
     mip: spine.Particle
         spine particle object
     
-    Returns?????????
+    Returns
     -------
+    float
+        difference between reconstructed lambda mass and true lambda mass
     '''
     LAM_MASS=1115.60 #lambda mass in MeV
     return 2*(PROT_MASS*mip.KE+hip.KE*PION_MASS-np.dot(hip.momentum,mip.momentum))+(PROT_MASS+PI_MASS)**2-LAM_MASS**2
