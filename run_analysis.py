@@ -69,6 +69,13 @@
 # import os
 import sys
 
+
+
+from spine.io.read import HDF5Reader
+
+import yaml
+from spine.driver import Driver
+
 from analysis import *
 
 # filepath=sys.argv[1]
@@ -86,64 +93,111 @@ DATA_DIR = '/home/' # Change this path if you are not on SDF (see main README)
 # Set software directory
 sys.path.append(SOFTWARE_DIR)
 
-newsemseg="utils/output_HM.h5"
+def main(min_hip_range,min_forwardness,max_hip_to_mip_dist,mip_range,
+         max_michel_dist,min_lambda_decay_len,lambda_kinematic_bounds,is_sim=False):
 
-#######read in the analysis file I generate from HIP/MIP prediction##################
-from spine.io.read import HDF5Reader
-reader = HDF5Reader(newsemseg) #set the file name
-#######read in the analysis file I generate from HIP/MIP prediction##################
+    newsemseg="utils/output_HM.h5"
 
-######read in the analysis file that everyone looks at##################
-import yaml
-from spine.driver import Driver
-DATA_PATH = DATA_DIR + 'dummy.h5' # This is the analysis file generated from the sample
-anaconfig = 'anaconfig.cfg'
-anaconfig = yaml.safe_load(open(anaconfig, 'r').read().replace('DATA_PATH', DATA_PATH))
-print(yaml.dump(anaconfig))
-driver = Driver(anaconfig)
-######read in the analysis file that everyone looks at##################
+    #######read in the analysis file I generate from HIP/MIP prediction##################
+    
+    reader = HDF5Reader(newsemseg) #set the file name
+    #######read in the analysis file I generate from HIP/MIP prediction##################
 
-
-
+    ######read in the analysis file that everyone looks at##################
+    
+    DATA_PATH = DATA_DIR + 'dummy.h5' # This is the analysis file generated from the sample
+    anaconfig = 'anaconfig.cfg'
+    anaconfig = yaml.safe_load(open(anaconfig, 'r').read().replace('DATA_PATH', DATA_PATH))
+    print(yaml.dump(anaconfig))
+    driver = Driver(anaconfig)
+    ######read in the analysis file that everyone looks at##################
 
 
-print("starting")
+    # min_hip_range=something
+    # min_forwardness=something
+    # max_hip_to_mip_dist=something
+    # mip_range=[something,something]
+    # max_michel_dist=something
 
-for ENTRY_NUM in range(driver.max_iteration):
-    print(ENTRY_NUM)
-    data = driver.process(entry=ENTRY_NUM)
-    hipmip= reader[0]
-    print(reader['seg_label'])
+    # min_lambda_decay_len=something
+    # lambda_kinematic_bounds=[something,something]
 
-    pot_kaons=[]
-    pred_kaons=[]
-    pred_kaons_michel=[]
-    true_kaons=[]
+    potential_K={}
+    predicted_K={}
+    predicted_K_michel={}
 
-    HIP=1
-    MIP=2
-    for i in reco_particles:
-        if HIP_candidate(i):
-            pot_kaons+=[particle/cluster_id]
-    for i in CLUSTERS:
-        if MIP_candidate(i,pot_kaons):
-            pred_kaons+=[i.parent_id]
-        if MIP_michel(i,pot_kaons):
-            pred_kaons_michel+=[i.parent_id]
-        if true_k_with_mu(i):
-            true_kaons+=[i.parent_id]
-
-    efficiency=len(set(pred_kaons)&set(true_kaons))/len(true_kaons) #total efficiency
-    purity=len(set(pred_kaons)&set(true_kaons))/len(pred_kaons) #total purity
+    predicted_L={}
 
 
 
+    print("starting")
 
+    for ENTRY_NUM in range(driver.max_iteration):
+        print(ENTRY_NUM)
+        data = driver.process(entry=ENTRY_NUM)
+        hipmip= reader[ENTRY_NUM]
+        print(reader['seg_label'])
 
+        true_kaons=[]
+        true_lambdas=[]
 
+        # HIP=1
+        # MIP=2
 
-    #I need to do some association in here which I think should be easy enough, 
+        particles=something
 
+        # FIND PRIMARY KAONS LOOP---------------------
+        for hip_candidate in particles:
+            if not hip_candidate.is_primary: continue
+            if HIP_range(hip_candidate)<min_hip_range : continue
+            if forwardness(hip_candidate)<min_forwardness: continue
+            if daughters(hip_candidate,particles)!=[one muon]: continue
+            potential_K[ENTRY_NUM]+=[[ENTRY_NUM,hip_candidate.trackid]]
 
+        for mip_candidate in particles:
+            if MIP_range(mip_candidate)<mip_range[0]: continue
+            if MIP_range(mip_candidate)>mip_range[1]: continue
+            z=dist_hipend_mipstart(mip_candidate,potential_K[ENTRY_NUM])
+            if z[0]>max_hip_to_mip_dist:continue
+            if daughters(mip_candidate,particles)!=[None or one michel]:continue
+            predicted_K[ENTRY_NUM]+=[z[1]+[mip_candidate.trackid]]
 
-# np.save(outfile,outlist)
+        for michel_candidate in particles:
+            z=MIP_to_michel(michel_candidate,predicted_K)
+            if z[0]>max_michel_dist:continue
+            predicted_K_michel+=[z[1]+[michel_candidate.trackid]]
+        # END FIND PRIMARY KAONS LOOP---------------------
+
+        # FIND LAMBDAS LOOP---------------------------
+        for lam_hip_candidate in particles:
+            if not potential_lambda_hip(lam_hip_candidate): continue
+            for lam_mip_candidate in particles:
+                if not potential_lambda_mip(lam_mip_candidate): continue
+                if lambda_decay_len(lam_hip_candidate)<min_lambda_decay_len: continue
+                if lambda_kinematic(lam_hip_candidate,lam_mip_candidate)<lambda_kinematic_bounds[0] or lambda_kinematic(lam_hip_candidate,lam_mip_candidate)>lambda_kinematic_bounds[1]: continue
+                #TODO there's maybe some daughter cut I could use here?
+                predicted_L+=[[ENTRY_NUM,lam_hip_candidate.trackid,lam_mip_candidate.trackid]]
+        # END FIND LAMBDAS LOOP---------------------------
+
+        #TODO below this line gets less and less thought out
+        if is_sim:
+            pk=[tuple(j) for i in predicted_K.values() for j in i]
+            
+            efficiency_K=len(set(predicted_K)&set(true_kaons))/len(true_kaons) #total efficiency
+            purity_K=len(set(predicted_K)&set(true_kaons))/len(predicted_K) #total purity
+
+            pkm=[tuple(j) for i in predicted_K_michel.values() for j in i]
+
+            efficiency_K_mich=len(set(predicted_K_michel)&set(true_kaons_michel))/len(true_kaons_michel) #total efficiency
+            purity_K_mich=len(set(predicted_K_michel)&set(true_kaons_michel))/len(predicted_K_michel) #total purity
+
+            pL=[tuple(j) for i in predicted_L.values() for j in i]
+
+            efficiency_L=len(set(predicted_L)&set(true_lambdas))/len(true_lambdas) #total efficiency
+            purity_L=len(set(predicted_L)&set(true_lambdas))/len(predicted_L) #total purity
+
+        
+
+    return 
+if __name__ == "__main__":
+    main()
