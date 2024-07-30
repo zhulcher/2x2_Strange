@@ -41,7 +41,7 @@ def is_contained(pos:np.ndarray,eps=30)->bool:
     return True
 
 
-def HIPMIP_pred(particle:FinalParticle,sparse3d_pcluster_semantics_HM):
+def HIPMIP_pred(particle:FinalParticle,sparse3d_pcluster_semantics_HM:?????):
     '''
     Returns the semantic segmentation prediction encoded in sparse3d_pcluster_semantics_HM,
     where the prediction is not guaranteed unique for each cluster, for the particle object,
@@ -156,7 +156,7 @@ def dist_hipend_mipstart(particle:FinalParticle,hip_candidates:list[list[FinalPa
             hfinal=h
     return [shortest_dist,[hfinal,particle]]
 
-def daughters(particle:FinalParticle,particle_list):
+def daughters(particle:FinalParticle,particle_list:List(FinalParticle)):
     '''
     Returns number of daughter candidates with each semantic segmentation prediction.
 
@@ -176,11 +176,12 @@ def daughters(particle:FinalParticle,particle_list):
         #something like the logic in true_k_with_mu, but without truth information obviously
         #might have to do something about particles which arent close which point back
         #or particles which are connected near ends but are just the product of the busy environment
-    daughter_dist=np.inf
-    for p in particle_list:
-        if p.id==particle.id: continue
-        daughter_dist=np.minimum(daughter_dist,np.linalg.norm(p.position-particle.end_point))
-    return daughter_dist
+    # daughter_dist=np.inf
+    # for p in particle_list:
+    #     if p.id==particle.id: continue
+    #     daughter_dist=np.minimum(daughter_dist,np.linalg.norm(p.position-particle.end_point))
+    # return daughter_dist
+    pass
     
 def MIP_to_michel(michel:FinalParticle,kmupairs:list[list[FinalParticle]]):
     '''
@@ -223,7 +224,7 @@ def potential_lambda():
     '''
     return True
 
-def lambda_decay_len(hip:FinalParticle,mip:FinalParticle,interactions):
+def lambda_decay_len(hip:FinalParticle,mip:FinalParticle,interactions:List[spine.interactions????]):
     pass
     '''
     Returns distance from average start position of hip and mip to vertex location of the assocated interaction
@@ -244,7 +245,7 @@ def lambda_decay_len(hip:FinalParticle,mip:FinalParticle,interactions):
     idx=hip.interaction_id
     return np.linalg.norm(interactions[idx].vertex-guess_start)
    
-def lambda_kinematic(hip,mip):
+def lambda_kinematic(hip:FinalParticle,mip:FinalParticle):
     '''
     Returns lambda mass value constructed from the hip and mip candidate deposited energy and predicted direction
     #TODO it will probably be useful to use other kinematic quantities

@@ -196,6 +196,8 @@ def main(min_hip_range=0,max_acos=0,max_hip_to_mip_dist_K=np.inf,mip_range=[0,np
                 if lambda_kinematic(lam_hip_candidate,lam_mip_candidate)<lambda_kinematic_bounds[0] or lambda_kinematic(lam_hip_candidate,lam_mip_candidate)>lambda_kinematic_bounds[1]: continue #KINEMATIC
                 #TODO there's maybe some daughter cut I could use here?
                 predicted_L+=[[lam_hip_candidate.trackid,lam_mip_candidate.trackid]]
+
+            #TODO do something
         # END FIND LAMBDAS LOOP---------------------------
 
         # if is_sim:
