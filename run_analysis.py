@@ -121,7 +121,8 @@ def main(min_hip_range=0,max_acos=0,max_hip_to_mip_dist_K=np.inf,mip_range=[0,np
 
     predicted_L=[]
 
-
+    # TRUTH=False #Orwell would be proud
+    TRUTH=True #Orwell is displeased
 
     print("starting")
 
@@ -136,13 +137,23 @@ def main(min_hip_range=0,max_acos=0,max_hip_to_mip_dist_K=np.inf,mip_range=[0,np
 
         # HIP=1
         # MIP=2
+        if TRUTH:
+            particles=data['truth_particles']
+            interactions=data['truth_interactions']
+        else:
+            particles=data['reco_particles']
+            interactions=data['reco_interactions']
 
-        particles=something
-        sparse3d_pcluster_semantics_HM=something2
+
+
+        
+        sparse3d_pcluster_semantics_HM=something
 
         #STANDARD [SHOWR_SHP, TRACK_SHP, MICHL_SHP, DELTA_SHP, LOWES_SHP,UNKWN_SHP]
 
         #HM [SHOWR_SHP, HIP_SHP, MIP_SHP, MICHL_SHP, DELTA_SHP, LOWES_SHP,UNKWN_SHP]
+
+        #TODO add in something about the collision distance
 
         # FIND PRIMARY KAONS LOOP---------------------
         for hip_candidate in particles:
@@ -180,9 +191,8 @@ def main(min_hip_range=0,max_acos=0,max_hip_to_mip_dist_K=np.inf,mip_range=[0,np
                 if not is_contained(lam_mip_candidate): continue #CONTAINED
                 if HIPMIP_pred(lam_mip_candidate,sparse3d_pcluster_semantics_HM)!=MIP: continue #MIP
 
-
                 if np.linalg.norm(lam_hip_candidate.position-lam_mip_candidate.position)>max_hip_to_mip_dist_lam: continue  #DIST FROM MIP TO HIP START
-                if lambda_decay_len(lam_hip_candidate,lam_mip_candidate)<min_lambda_decay_len: continue #EFFECTIVE DECAY LENGTH
+                if lambda_decay_len(lam_hip_candidate,lam_mip_candidate,interactions)<min_lambda_decay_len: continue #EFFECTIVE DECAY LENGTH
                 if lambda_kinematic(lam_hip_candidate,lam_mip_candidate)<lambda_kinematic_bounds[0] or lambda_kinematic(lam_hip_candidate,lam_mip_candidate)>lambda_kinematic_bounds[1]: continue #KINEMATIC
                 #TODO there's maybe some daughter cut I could use here?
                 predicted_L+=[[lam_hip_candidate.trackid,lam_mip_candidate.trackid]]

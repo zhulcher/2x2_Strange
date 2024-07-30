@@ -54,7 +54,6 @@ def HIPMIP_pred(particle:FinalParticle,sparse3d_pcluster_semantics_HM):
     sparse3d_pcluster_semantics_HM : ????????
         New semantic segmentation predictions for each voxel in an image
 
-    #TODO use index from spine.Particle 
     #TODO do quality check 
 
     Returns
@@ -62,25 +61,9 @@ def HIPMIP_pred(particle:FinalParticle,sparse3d_pcluster_semantics_HM):
     int
         Semantic segmentation prediction including HIP/MIP for a cluster
     '''
-    
-    #TODO I don't believe for a second I have the logic for this one right yet.
-    #TODO I think I want to rework this to do the semantic segmentation all at once,
-        # and store the value in a dictionary or something I can pass between functions that need it. 
-
     if len(particle.depositions)==0:return None
-    shapelist=[]
-    mine=particle.index
-
-    # truthinfo = particle_pcluster
-    # semantics_HM = sparse3d_pcluster_semantics_HM
-    # semanticsdict={}
-    # for i in range(len(semantics_HM.as_vector())): semanticsdict[semantics_HM.as_vector()[i].id()]=i
-    # for k in range(len(voxelmap.as_vector()[particle.id])):
-    #     id=voxelmap.as_vector()[particle.id].as_vector()[k].id()
-    #     # print(semanticsdict[id],id, semantics_HM.as_vector()[semanticsdict[id]].value())
-    #     shapelist+=semantics_HM.as_vector()[semanticsdict[id]].value()
-
-    return stats.mode(shapelist)
+    HM_Pred=sparse3d_pcluster_semantics_HM[particle.index[0]:particle.index[1]]
+    return stats.mode(HM_Pred)
     
 def direction_acos(particle:FinalParticle, beam_dir=np.array([0.,0.,1.])) -> float:
     '''
@@ -130,7 +113,7 @@ def collision_distance(particle1:FinalParticle,particle2:FinalParticle):
     v12=np.dot(v1,v2)
     dp=p1-p2
 
-    denom=v12**2==v11*v22
+    denom=v12**2-v11*v22
 
     if denom==0: return [0,0,np.linalg.norm(dp)]
 
@@ -162,16 +145,16 @@ def dist_hipend_mipstart(particle:FinalParticle,hip_candidates:list[list[FinalPa
     
     Returns
     -------
-    (float,[spine.Particle,spine.Particle])
+    [float,[spine.Particle,spine.Particle]]
         Distance from hip to mip candidate and identified kaon candidate 
 
     '''
-    shortest_dist=(np.inf, None)
+    shortest_dist=[np.inf, None]
     for h in hip_candidates:
         if np.linalg.norm(h[0].end_point-particle.start_point)<shortest_dist:
             shortest_dist=np.linalg.norm(h[0].end_point-particle.start_point)
             hfinal=h
-    return (shortest_dist,[hfinal,particle])
+    return [shortest_dist,[hfinal,particle]]
 
 def daughters(particle:FinalParticle,particle_list):
     '''
@@ -215,17 +198,16 @@ def MIP_to_michel(michel:FinalParticle,kmupairs:list[list[FinalParticle]]):
     
     Returns
     -------
-    (float,[spine.Particle,spine.Particle])
+    [float,[spine.Particle,spine.Particle]]
         Distance from michel to mip candidate and a list of identified kaon candidate, identified muon candidate
     '''
     mindist=np.inf
-    if michel.shape!=MICHL_SHP:return np.inf
     pfinal=[]
     for p in kmupairs:
         dist=np.linalg.norm(michel.start_point-p[1].end_point)
         mindist=np.minimum(mindist,dist)
         pfinal=p
-    return (mindist,pfinal+[michel])
+    return [mindist,pfinal+[michel]]
     
 
 def potential_lambda():
@@ -241,7 +223,7 @@ def potential_lambda():
     '''
     return True
 
-def lambda_decay_len(hip:FinalParticle,mip:FinalParticle):
+def lambda_decay_len(hip:FinalParticle,mip:FinalParticle,interactions):
     pass
     '''
     Returns distance from average start position of hip and mip to vertex location of the assocated interaction
@@ -258,11 +240,9 @@ def lambda_decay_len(hip:FinalParticle,mip:FinalParticle):
     float
         distance from lambda decay point to vertex of interaction
     '''
-    # guess_start=(hip.start_point+mip.start_point)/2
-    return 0
-
-    #TODO get vertex associated to this interaction
-    # return np.linalg.norm(guess_start-hip.??????)
+    guess_start=(hip.start_point+mip.start_point)/2
+    idx=hip.interaction_id
+    return np.linalg.norm(interactions[idx].vertex-guess_start)
    
 def lambda_kinematic(hip,mip):
     '''
