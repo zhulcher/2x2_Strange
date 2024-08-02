@@ -18,32 +18,15 @@ Interaction=spine.RecoInteraction|spine.TruthInteraction
 Met=spine.Meta
 Geo=Geometry(detector='2x2')
 
-def is_contained(particle:Particle,margin:float=0)->bool:
-    '''
-    Checks if a particle's edep is within the defined detector boundaries within some tolerance, eps
-    Parameters
-    ----------
-    particle : Particle
-        particle object
-    margin : np.ndarray/float
-        Tolerance from module boundaries (cm)
 
-    Returns
-    -------
-    Bool
-        Point at least eps away from boundaries and in the detector
-        '''
-    
-    Geo.define_containment_volumes(margin,mode='detector')
-    return bool(Geo.check_containment(particle.points))
-
-
-def away_from_boundary(pos:np.ndarray,margin:float=0)->bool:
+def is_contained(pos:np.ndarray,mode:str,margin:float=0)->bool:
     '''
     Checks if a point is near dead volume of the detector
     ----------
     pos : np.ndarray
         (3) Vector position (cm)
+    mode: str
+        defined in spine Geometry class
     margin : np.ndarray/float
         Tolerance from module boundaries (cm)
 
@@ -52,8 +35,10 @@ def away_from_boundary(pos:np.ndarray,margin:float=0)->bool:
     Bool
         Point farther than eps away from all dead volume and in the detector
         '''
-    Geo.define_containment_volumes(margin,mode='tpc')
-    return bool(Geo.check_containment([pos]))
+    Geo.define_containment_volumes(margin,mode=mode)
+    return bool(Geo.check_containment(pos))
+
+#TODO is contained unit test a million points each 
 
 
 def HIPMIP_pred(particle:Particle,sparse3d_pcluster_semantics_HM:np.ndarray)->int:
@@ -74,7 +59,7 @@ def HIPMIP_pred(particle:Particle,sparse3d_pcluster_semantics_HM:np.ndarray)->in
     int
         Semantic segmentation prediction including HIP/MIP for a cluster
     '''
-    if len(particle.depositions)==0:return 100#TODO something better than this 
+    if len(particle.depositions)==0:raise ValueError("No voxels")
     #slice a set of voxels for the target particle
     HM_Pred=sparse3d_pcluster_semantics_HM[particle.index,-1]
     return max(set(HM_Pred), key = HM_Pred.count)
@@ -103,8 +88,6 @@ def collision_distance(particle1:Particle,particle2:Particle):
     which is the point of closest approach to the other particle's corresponding line, along with the distance of closest approach.
     The parameters, t1 and t2, are calculated by minimizing ||p1+v1*t1-p2-v2*t2||^2, where p1/p2 are the starting point of each particle
     and v1/v2 are the start direction of each particle
-
-    #TODO this is currently unused
     
     Parameters
     ----------
@@ -173,7 +156,7 @@ def dist_end_start(particle:Particle,parent_candidates:list[Particle])->list[flo
     return [shortest_dist,idp]
 
 
-def is_child_eps_angle(parent_end:np.ndarray,child:Particle,max_dist:float,max_angle:float=np.pi,min_dist:float=0):
+def is_child_eps_angle(parent_end:np.ndarray,child:Particle,max_dist:float=np.inf,max_angle:float=np.pi,min_dist:float=0)->tuple[bool,float,float]:
     '''
     Returns True iff the child particle start is within dist from the parent particle end and the child particle points back
     to the parent particle end with an angular deviation smaller than angle
@@ -198,13 +181,17 @@ def is_child_eps_angle(parent_end:np.ndarray,child:Particle,max_dist:float,max_a
             this is a child of the parent, according to the prescription outlined
     '''
     true_dir=child.start_point-parent_end
-    separation=np.linalg.norm(true_dir)
-    if separation<min_dist: return True
-    if separation>max_dist: return False
-    if np.arccos(np.dot(true_dir,child.start_dir)/separation)>max_angle: return False
-    return True
+    separation=float(np.linalg.norm(true_dir))
+    if separation==0:
+        angle=0
+    else:
+        angle=np.arccos(np.dot(true_dir,child.start_dir)/separation)
+    if separation<min_dist: return (True, separation,angle)
+    if separation>max_dist: return (False,separation,angle)
+    if angle>max_angle: return (False,separation,angle)
+    return (True,separation,angle)
 
-def children(parent_end:np.ndarray,particle_list:list[Particle],max_dist:float,max_angle:float=np.pi,min_dist:float=0)->list[Particle]:
+def children(parent_end:np.ndarray,particle_list:list[Particle],max_dist:float=np.inf,max_angle:float=np.pi,min_dist:float=0)->list[tuple[Particle,float,float]]:
     '''
     Returns children candidates
 
@@ -228,12 +215,13 @@ def children(parent_end:np.ndarray,particle_list:list[Particle],max_dist:float,m
     '''
     children=[]
     for p in particle_list:
-        if is_child_eps_angle(parent_end,p,max_dist,max_angle,min_dist):
-            children+=[p]
+        is_child=is_child_eps_angle(parent_end,p,max_dist,max_angle,min_dist)
+        if is_child[0]:
+            children+=[(p,is_child[1],is_child[2])]
     return children
     
 
-def lambda_children(hip:Particle,mip:Particle,particle_list:list[Particle],max_dist:float,max_angle:float=np.pi,min_dist:float=0)->list[Particle]:
+def lambda_children(hip:Particle,mip:Particle,particle_list:list[Particle],max_dist:float=np.inf,max_angle:float=np.pi,min_dist:float=0)->list[tuple[Particle,float,float]]:
     '''
     Returns children candidates for lambda particle
 
@@ -263,12 +251,12 @@ def lambda_children(hip:Particle,mip:Particle,particle_list:list[Particle],max_d
                                  directions=[hip.start_dir,mip.start_dir])
     children=[]
     for p in particle_list:
-        if is_child_eps_angle(guess_start,p,max_dist,max_angle,min_dist):
-            children+=[p]
+        is_child=is_child_eps_angle(guess_start,p,max_dist,max_angle,min_dist)
+        if is_child[0]:
+            children+=[(p,is_child[1],is_child[2])]
     return children
 
 def lambda_decay_len(hip:Particle,mip:Particle,interactions:list[Interaction])->float:
-    pass
     '''
     Returns distance from average start position of hip and mip to vertex location of the assocated interaction
 
@@ -335,7 +323,7 @@ def lambda_AM(hip:Particle,mip:Particle,interactions:list[Interaction])->list[fl
 
 
    
-def lambda_mass(hip:Particle,mip:Particle)->float:
+def lambda_mass_2(hip:Particle,mip:Particle)->float:
     '''
     Returns lambda mass value constructed from the hip and mip candidate deposited energy and predicted direction
 
@@ -349,11 +337,11 @@ def lambda_mass(hip:Particle,mip:Particle)->float:
     Returns
     -------
     float
-        difference between reconstructed lambda mass and true lambda mass
+        reconstructed lambda mass squared
     '''
-    LAM_MASS=1115.60 #lambda mass in MeV
-    deltaL=2*(PROT_MASS*mip.ke+hip.ke*PION_MASS-np.dot(hip.momentum,mip.momentum))+(PROT_MASS+PION_MASS)**2-LAM_MASS**2
-    return deltaL
+    # LAM_MASS=1115.60 #lambda mass in MeV
+    L_mass2=2*(PROT_MASS*mip.ke+hip.ke*PION_MASS-np.dot(hip.momentum,mip.momentum))+(PROT_MASS+PION_MASS)**2
+    return L_mass2
 
 def vertex_angle_error(hip:Particle,mip:Particle,interactions:list[Interaction])->float:
     '''
