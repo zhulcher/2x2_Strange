@@ -71,9 +71,6 @@ import sys
 
 import random
 from collections import Counter
-
-
-from analysis.analysis_cuts import direction_acos
 from spine.io.read import HDF5Reader
 
 import yaml
