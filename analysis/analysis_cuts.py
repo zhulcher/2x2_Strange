@@ -1,47 +1,62 @@
 # from pandas import Float32Dtype
+from spine.utils.geo.base import *
 import spine
 from spine.utils.globals import *
+from spine.utils.vertex import *
 import numpy as np
-from scipy import stats
 
 
 #TODO things I would like added in truth:
     #children_id
 
-#TODO label functions with keyword from slides
-# import moduleboundaries
-
-moduleboundaries=np.array([[-63.931,  63.931],
-                           [-62.076,  62.076],
-                           [-64.538,  64.538]])
-
 HIP=2
 MIP=3
 
-FinalParticle=spine.RecoParticle|spine.TruthParticle
 
-def is_contained(pos:np.ndarray,eps=30)->bool:
+Particle=spine.RecoParticle|spine.TruthParticle
+Interaction=spine.RecoInteraction|spine.TruthInteraction
+Met=spine.Meta
+Geo=Geometry(detector='2x2')
+
+def is_contained(particle:Particle,margin:float=0)->bool:
     '''
-    Checks if a position is within the defined module boundaries within some tolerance, eps
-    #TODO specify type with colon and units 
+    Checks if a particle's edep is within the defined detector boundaries within some tolerance, eps
     Parameters
     ----------
-    pos : np.ndarray
-        (3) Vector position (cm)
-    M : float/np.ndarray
+    particle : Particle
+        particle object
+    margin : np.ndarray/float
         Tolerance from module boundaries (cm)
 
     Returns
     -------
     Bool
-        Point at least eps inside of boundaries 
+        Point at least eps away from boundaries and in the detector
         '''
-    if np.any(pos<moduleboundaries.T[0]+eps): return False
-    if np.any(pos>moduleboundaries.T[1]-eps): return False
-    return True
+    
+    Geo.define_containment_volumes(margin,mode='detector')
+    return bool(Geo.check_containment(particle.points))
 
 
-def HIPMIP_pred(particle:FinalParticle,sparse3d_pcluster_semantics_HM:?????):
+def away_from_boundary(pos:np.ndarray,margin:float=0)->bool:
+    '''
+    Checks if a point is near dead volume of the detector
+    ----------
+    pos : np.ndarray
+        (3) Vector position (cm)
+    margin : np.ndarray/float
+        Tolerance from module boundaries (cm)
+
+    Returns
+    -------
+    Bool
+        Point farther than eps away from all dead volume and in the detector
+        '''
+    Geo.define_containment_volumes(margin,mode='tpc')
+    return bool(Geo.check_containment([pos]))
+
+
+def HIPMIP_pred(particle:Particle,sparse3d_pcluster_semantics_HM:np.ndarray)->int:
     '''
     Returns the semantic segmentation prediction encoded in sparse3d_pcluster_semantics_HM,
     where the prediction is not guaranteed unique for each cluster, for the particle object,
@@ -51,44 +66,45 @@ def HIPMIP_pred(particle:FinalParticle,sparse3d_pcluster_semantics_HM:?????):
     ----------
     particle : spine.Particle
         Particle object with cluster information and unique semantic segmentation prediction
-    sparse3d_pcluster_semantics_HM : ????????
-        New semantic segmentation predictions for each voxel in an image
-
-    #TODO do quality check 
+    sparse3d_pcluster_semantics_HM : np.ndarray
+        HIP/MIP semantic segmentation predictions for each voxel in an image
 
     Returns
     -------
     int
         Semantic segmentation prediction including HIP/MIP for a cluster
     '''
-    if len(particle.depositions)==0:return None
-    HM_Pred=sparse3d_pcluster_semantics_HM[particle.index[0]:particle.index[1]]
-    return stats.mode(HM_Pred)
+    if len(particle.depositions)==0:return 100#TODO something better than this 
+    #slice a set of voxels for the target particle
+    HM_Pred=sparse3d_pcluster_semantics_HM[particle.index,-1]
+    return max(set(HM_Pred), key = HM_Pred.count)
     
-def direction_acos(particle:FinalParticle, beam_dir=np.array([0.,0.,1.])) -> float:
+def direction_acos(particle:Particle, direction=np.array([0.,0.,1.])) -> float:
     '''
-    Returns angle between the beam-axis (here assumed in z) and the particle object's momentum
+    Returns angle between the beam-axis (here assumed in z) and the particle object's start direction
 
     Parameters
     ----------
     particle : spine.Particle
         Particle object with cluster information
-    beam_dir : np.ndarray[float]
+    direction : np.ndarray[float]
+        Direction of beam
     
     Returns
     -------
     float
         Angle between particle direction and beam
     '''
-    return np.arccos(np.dot(particle.start_dir,beam_dir))
+    return np.arccos(np.dot(particle.start_dir,direction))
 
-def collision_distance(particle1:FinalParticle,particle2:FinalParticle):
+def collision_distance(particle1:Particle,particle2:Particle):
     '''
     Returns for each particle, the distance from the start point to the point along the vector start direction
     which is the point of closest approach to the other particle's corresponding line, along with the distance of closest approach.
     The parameters, t1 and t2, are calculated by minimizing ||p1+v1*t1-p2-v2*t2||^2, where p1/p2 are the starting point of each particle
     and v1/v2 are the start direction of each particle
 
+    #TODO this is currently unused
     
     Parameters
     ----------
@@ -124,107 +140,134 @@ def collision_distance(particle1:FinalParticle,particle2:FinalParticle):
 
     return [t1,t2,min_dist]
 
-#TODO angular resolution check
-#TODO direction estimate check 
-
     
-def dist_hipend_mipstart(particle:FinalParticle,hip_candidates:list[list[FinalParticle]]):
+def dist_end_start(particle:Particle,parent_candidates:list[Particle])->list[float]:
     
     '''
-    Returns minimum distance between the start of a mip candidate and the end
-    of every hip candidate supplied, along with the hip candidate identified.
-    Returns (np.inf, None) if the mip candidate is not a mip or the hip_candidate
-    list is empty
+    Returns minimum distance between the start of child particle and the end
+    of every parent candidate supplied, along with the parent candidate identified.
+    Returns (np.inf, None) if the parent_candidate list is empty
 
     Parameters
     ----------
     particle : spine.Particle
-        Particle object with cluster information
-    hip_candidates: List(List(spine.Particle))
-        List of spine particle objects corresponding to identified kaons
+        Particle object
+    parent_candidates: List(spine.Particle)
+        List of spine particle objects corresponding to potential parents of particle
     
     Returns
     -------
-    [float,[spine.Particle,spine.Particle]]
-        Distance from hip to mip candidate and identified kaon candidate 
+    [float,spine.Particle]
+        Distance from parent end to child start and corresponding parent
 
     '''
-    shortest_dist=[np.inf, None]
-    for h in hip_candidates:
-        if np.linalg.norm(h[0].end_point-particle.start_point)<shortest_dist:
-            shortest_dist=np.linalg.norm(h[0].end_point-particle.start_point)
-            hfinal=h
-    return [shortest_dist,[hfinal,particle]]
+    idp=np.nan
+    N=0
+    shortest_dist=np.inf
+    for p in parent_candidates:
+        if np.linalg.norm(p.end_point-particle.start_point)<shortest_dist:
+            v=p.end_point-particle.start_point
+            shortest_dist=np.dot(v,v)
+            idp=N
+        N+=1
+    return [shortest_dist,idp]
 
-def daughters(particle:FinalParticle,particle_list:List(FinalParticle)):
+
+def is_child_eps_angle(parent_end:np.ndarray,child:Particle,max_dist:float,max_angle:float=np.pi,min_dist:float=0):
     '''
-    Returns number of daughter candidates with each semantic segmentation prediction.
+    Returns True iff the child particle start is within dist from the parent particle end and the child particle points back
+    to the parent particle end with an angular deviation smaller than angle
 
     Parameters
     ----------
-    particle : spine.Particle
-        Particle object with cluster information
-    particle_list: List(spine.Particle)
-        List of spine particle objects
-    
-    Returns
-    -------
-        np.ndarray
-            shape (6) number of daughters with particular semantic segmentation prediction 
-    '''
-    #TODO the logic from one isn't right yet. I need to find daughters which are only from hard scattering (probably hip), etc. 
-        #something like the logic in true_k_with_mu, but without truth information obviously
-        #might have to do something about particles which arent close which point back
-        #or particles which are connected near ends but are just the product of the busy environment
-    # daughter_dist=np.inf
-    # for p in particle_list:
-    #     if p.id==particle.id: continue
-    #     daughter_dist=np.minimum(daughter_dist,np.linalg.norm(p.position-particle.end_point))
-    # return daughter_dist
-    pass
-    
-def MIP_to_michel(michel:FinalParticle,kmupairs:list[list[FinalParticle]]):
-    '''
-    Returns minimum distance between the start of a michel candidate and the end
-    of every mip candidate supplied, along with the hip/mip pair identified.
-    Returns (np.inf, None) if the michel candidate is not a michel or the mip_candidate
-    list is empty
+    parent_end : np.ndarray(3)
+        parent end location
+    child: spine.Particle
+        Particle object
+    max_dist: float
+        max dist from child start to parent end 
+    max_angle: float
+        max angle between line pointing from parent end to child start and child initial direction
+    min_dist: float
+        if child start closer than this from parent end, return True
 
-    Parameters
-    ----------
-    michel : spine.Particle
-        Particle object with cluster information
-    kmupairs: List([spine.Particle,spine.Particle])
-        List of spine particle objects corresponding to identified k/mu pairs along
     
     Returns
     -------
-    [float,[spine.Particle,spine.Particle]]
-        Distance from michel to mip candidate and a list of identified kaon candidate, identified muon candidate
+        bool
+            this is a child of the parent, according to the prescription outlined
     '''
-    mindist=np.inf
-    pfinal=[]
-    for p in kmupairs:
-        dist=np.linalg.norm(michel.start_point-p[1].end_point)
-        mindist=np.minimum(mindist,dist)
-        pfinal=p
-    return [mindist,pfinal+[michel]]
-    
-
-def potential_lambda():
-    pass
-    '''
-    Returns true if various checks (TBD) on a potential lambda pass
-    #TODO something else to check what other particles begin near the lambda start point.
-    # I only want a proton and a pion, nothing else
-    Parameters
-    ----------
-    Returns
-    -------
-    '''
+    true_dir=child.start_point-parent_end
+    separation=np.linalg.norm(true_dir)
+    if separation<min_dist: return True
+    if separation>max_dist: return False
+    if np.arccos(np.dot(true_dir,child.start_dir)/separation)>max_angle: return False
     return True
 
-def lambda_decay_len(hip:FinalParticle,mip:FinalParticle,interactions:List[spine.interactions????]):
+def children(parent_end:np.ndarray,particle_list:list[Particle],max_dist:float,max_angle:float=np.pi,min_dist:float=0)->list[Particle]:
+    '''
+    Returns children candidates
+
+    Parameters
+    ----------
+    parent_end : np.ndarray(3)
+        parent end location
+    particle_list: List(spine.Particle)
+        List of spine particle objects
+    max_dist: float
+        max dist from child start to parent end 
+    max_angle: float
+        max angle between line pointing from parent end to child start and child initial direction
+    min_dist: float
+        if child start closer than this from parent end, return True
+    
+    Returns
+    -------
+        list[Particle]
+            children candidates
+    '''
+    children=[]
+    for p in particle_list:
+        if is_child_eps_angle(parent_end,p,max_dist,max_angle,min_dist):
+            children+=[p]
+    return children
+    
+
+def lambda_children(hip:Particle,mip:Particle,particle_list:list[Particle],max_dist:float,max_angle:float=np.pi,min_dist:float=0)->list[Particle]:
+    '''
+    Returns children candidates for lambda particle
+
+    Parameters
+    ----------
+    hip: spine.Particle
+        spine particle object
+    mip: spine.Particle
+        spine particle object
+    particle_list: List(spine.Particle)
+        List of spine particle objects
+    max_dist: float
+        max dist from child start to parent end 
+    max_angle: float
+        max angle between line pointing from parent end to child start and child initial direction
+    min_dist: float
+        if child start closer than this from parent end, return True
+    
+    Returns
+    -------
+        list[Particle]
+            children candidates
+    '''
+    children=[]
+    
+    guess_start=get_pseudovertex(start_points=[hip.start_point,mip.start_point],
+                                 directions=[hip.start_dir,mip.start_dir])
+    children=[]
+    for p in particle_list:
+        if is_child_eps_angle(guess_start,p,max_dist,max_angle,min_dist):
+            children+=[p]
+    return children
+
+def lambda_decay_len(hip:Particle,mip:Particle,interactions:list[Interaction])->float:
     pass
     '''
     Returns distance from average start position of hip and mip to vertex location of the assocated interaction
@@ -235,20 +278,66 @@ def lambda_decay_len(hip:FinalParticle,mip:FinalParticle,interactions:List[spine
         spine particle object
     mip: spine.Particle
         spine particle object
+    interactions:
+        list of spine interactions
     
     Returns
     -------
     float
         distance from lambda decay point to vertex of interaction
     '''
-    guess_start=(hip.start_point+mip.start_point)/2
+    guess_start=get_pseudovertex(start_points=[hip.start_point,mip.start_point],
+                                 directions=[hip.start_dir,mip.start_dir])
     idx=hip.interaction_id
-    return np.linalg.norm(interactions[idx].vertex-guess_start)
+    return float(np.linalg.norm(interactions[idx].vertex-guess_start))
+
+
+def lambda_AM(hip:Particle,mip:Particle,interactions:list[Interaction])->list[float]:
+    '''
+    Returns the P_T and the longitudinal momentum asymmetry corresponding to the Armenteros-Podolanski plot https://www.star.bnl.gov/~gorbunov/main/node48.html
+
+    Parameters
+    ----------
+    hip: spine.Particle
+        spine particle object
+    mip: spine.Particle
+        spine particle object
+    
+    Returns
+    -------
+    list[float]
+        shape(2) [hip pt + mip pt, hip vs mip longitudinal momentum assymmetry]
+    '''
+    inter=interactions[hip.interaction_id].vertex
+
+    guess_start=get_pseudovertex(start_points=[hip.start_point,mip.start_point],
+                                 directions=[hip.start_dir,mip.start_dir])
+    Lvec=guess_start-inter
+
+    Lvecnorm=np.linalg.norm(Lvec)
+    if Lvecnorm==0: 
+        asymm=np.nan
+        pt=np.nan
+    else: 
+        p1=hip.momentum
+        p2=mip.momentum
+        Lvec=Lvec/Lvecnorm
+
+        p1_L=np.dot(Lvec,p1)
+        p2_L=np.dot(Lvec,p2)
+
+        p1_T=float(np.linalg.norm(p1-p1_L*Lvec))
+        p2_T=float(np.linalg.norm(p2-p2_L*Lvec))
+
+        asymm=abs((p1_L-p2_L)/(p1_L+p2_L))
+        pt=p1_T+p2_T
+    return [asymm,pt]
+
+
    
-def lambda_kinematic(hip:FinalParticle,mip:FinalParticle):
+def lambda_mass(hip:Particle,mip:Particle)->float:
     '''
     Returns lambda mass value constructed from the hip and mip candidate deposited energy and predicted direction
-    #TODO it will probably be useful to use other kinematic quantities
 
     Parameters
     ----------
@@ -263,8 +352,40 @@ def lambda_kinematic(hip:FinalParticle,mip:FinalParticle):
         difference between reconstructed lambda mass and true lambda mass
     '''
     LAM_MASS=1115.60 #lambda mass in MeV
-    return 2*(PROT_MASS*mip.KE+hip.KE*PION_MASS-np.dot(hip.momentum,mip.momentum))+(PROT_MASS+PION_MASS)**2-LAM_MASS**2
+    deltaL=2*(PROT_MASS*mip.ke+hip.ke*PION_MASS-np.dot(hip.momentum,mip.momentum))+(PROT_MASS+PION_MASS)**2-LAM_MASS**2
+    return deltaL
 
+def vertex_angle_error(hip:Particle,mip:Particle,interactions:list[Interaction])->float:
+    '''
+    Returns angle between the line constructed from the momenta of the hip and mip and 
+    the line constructed from the interaction vertex and the lambda decay point
+
+    Parameters
+    ----------
+    hip: spine.Particle
+        spine particle object
+    mip: spine.Particle
+        spine particle object
+    
+    Returns
+    -------
+    float
+        distance from interaction vertex to line consructed from the momenta of the hip and mip
+    '''
+
+
+    
+    inter=interactions[hip.interaction_id].vertex
+    guess_start=get_pseudovertex(start_points=[hip.start_point,mip.start_point],
+                                 directions=[hip.start_dir,mip.start_dir])
+    Lvec1=guess_start-inter
+
+    Lvec2=hip.momentum+mip.momentum
+
+    if np.linalg.norm(Lvec1)==0 or np.linalg.norm(Lvec2)==0: return np.nan
+    ret=np.arccos(np.dot(Lvec1,Lvec2)/np.linalg.norm(Lvec1)/np.linalg.norm(Lvec2))
+    assert ret==ret
+    return ret
 
 
 # def true_k_with_mu(particle_list):
