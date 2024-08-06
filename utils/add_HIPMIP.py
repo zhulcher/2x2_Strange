@@ -82,8 +82,8 @@ for i_entry in range(n_evts):
 
     io_out.read_entry(i_entry)
     
-    j_entry = (i_entry + 1) % io.get_n_entries()
-    io.read_entry(j_entry)
+    # j_entry = (i_entry + 1) % io.get_n_entries()
+    io.read_entry(i_entry)
 
     # =openroot.Get("_pcluster_tree")
     # truthinfo=openroot.Get("particle_pcluster_tree")
