@@ -1,6 +1,16 @@
 from larcv import larcv
 import tempfile
 
+import sys
+
+'''
+
+The way to run this script is
+
+python3 add_HIPMIP.py "input_file.larcv.root" "output_file.larcv.root"
+
+'''
+
 def load_cfg(cfg):
     """"
     Prepare larcv io for a given config string.
@@ -24,14 +34,18 @@ def load_cfg(cfg):
 
     return io
 
+print("attempting to convert",sys.argv[1],"to",sys.argv[2])
+
 cfg = '''
     IOManager: {
         Verbosity    : 2
         Name         : "MainIO"
         IOMode       : 0
-        InputFiles   : ["output_50637873_0068-larcv.root"]
+        InputFiles   : [%s]
     }
-    '''
+    '''% sys.argv[1]
+#"MiniRun5_1E19_RHC.flow.0000001.larcv.root"
+# sys.argv[1]
 io = load_cfg(cfg)
 
 n_evts = io.get_n_entries()#min(n_max, 10000)
@@ -42,11 +56,11 @@ outcfg= '''
         Verbosity    : 2
         Name         : "OUTIO"
         IOMode       : 2
-        InputFiles   : ["output_50637873_0068-larcv.root"]
-        OutFileName  : "output_HM-larcv.root"
+        InputFiles   : [%s]
+        OutFileName  : %s
     }
-    '''
-
+    '''% (sys.argv[1], sys.argv[2])
+#"output_HM-larcv.root"
 io_out = load_cfg(outcfg)
 
 
@@ -95,7 +109,7 @@ for i_entry in range(n_evts):
         
         if abs(truthinfo.as_vector()[j].pdg_code()) not in [2212,321]:continue
         if len(voxelmap.as_vector()[j])==0: continue
-        print("got one")
+        # print("got one")
         # print(truthinfo.as_vector()[j].pdg_code(),len(voxelmap.as_vector()[j]))
         for k in range(len(voxelmap.as_vector()[j])):
             id=voxelmap.as_vector()[j].as_vector()[k].id()
