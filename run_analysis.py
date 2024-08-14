@@ -70,14 +70,12 @@
 import sys
 
 import random
-from collections import Counter
 from spine.io.read import HDF5Reader
 
 import yaml
 from spine.driver import Driver
 
 from analysis.analysis_cuts import *
-import numpy as np
 
 # filepath=sys.argv[1]
 # file=os.path.basename(filepath)
@@ -95,12 +93,12 @@ sys.path.append(SOFTWARE_DIR)
 
 from spine.data.meta import *
 
-def main(HMh5,analysish5,mode:bool=True
+def main(HMh5,analysish5,mode:bool=True,outfile=''
         #,min_hip_range=0,max_acos=0,mip_range=[0,np.inf],
         # min_lambda_decay_len=0,lambda_mass_bounds=[-np.inf,np.inf],
          #max_hip_to_mip_dist_lam=np.inf,max_vertex_error=np.inf,
         # max_child_angle=np.pi,max_child_dist=np.inf
-        )->list[dict[int,list[tuple]]]:
+        ):
 
     # newsemseg="utils/output_HM.h5"
 
@@ -120,18 +118,10 @@ def main(HMh5,analysish5,mode:bool=True
 
     
 
-    potential_K:dict[int,list[
-            tuple[int,float,float]
-                                ]]={}
-    predicted_K:dict[int,list[
-            tuple[int,int,float,float,list[tuple[int,float,float]]]
-                                ]]={}
-    predicted_K_michel:dict[int,list[
-            tuple[int,int,int,float,list[tuple[int,float,float]]]
-                                ]]={}
-    predicted_L:dict[int,list[
-            tuple[int,int,float,float,float,list[float],list[float],list[tuple[int,float,float]]]
-                                ]]={}
+    potential_K:dict[int,list[Pot_K]]={}
+    predicted_K:dict[int,list[Pred_K]]={}
+    predicted_K_michel:dict[int,list[Pred_K_Mich]]={}
+    predicted_L:dict[int,list[Pred_L]]={}
 
     print("starting")
 
@@ -139,7 +129,6 @@ def main(HMh5,analysish5,mode:bool=True
         print(ENTRY_NUM)
         data = driver.process(entry=ENTRY_NUM)
         sparse3d_pcluster_semantics_HM=reader[ENTRY_NUM]['seg_label']
-        print(reader['seg_label'])
 
         # true_kaons=[]
         # true_lambdas=[]
@@ -155,7 +144,7 @@ def main(HMh5,analysish5,mode:bool=True
         #check that voxels line up, sometimes
         if random.randint(0, 100)==0:
             meta:Met= data['meta']
-            p_to_check=random.randint(0, len(particles))
+            p_to_check=random.randint(0, len(particles)-1)
             idx=particles[p_to_check].id
             voxels1= sparse3d_pcluster_semantics_HM[idx,1:4]
             voxels2=particles[p_to_check].points
@@ -170,69 +159,73 @@ def main(HMh5,analysish5,mode:bool=True
         #TODO angular resolution check
         #TODO direction estimate check 
 
+        HM_pred=[HIPMIP_pred(p,sparse3d_pcluster_semantics_HM) for p in particles]
         # FIND PRIMARY KAONS LOOP---------------------
         for hip_candidate in particles:
             if not hip_candidate.is_primary: continue #PRIMARY
-            if HIPMIP_pred(hip_candidate,sparse3d_pcluster_semantics_HM)!=HIP: continue #HIP
+            if HM_pred[hip_candidate.id]!=HIP_HM: continue #HIP
+            # print("we have a HIP")
             if not is_contained(hip_candidate.points,mode='detector'): continue #CONTAINED
+            if not is_contained(np.array([hip_candidate.start_point]),mode='tpc',margin=1): continue #CONTAINED VERTEX
             # if hip_candidate.length<min_hip_range: continue #RANGE
             # if direction_acos(hip_candidate)>max_acos: continue #FORWARD
             if ENTRY_NUM not in potential_K: potential_K[ENTRY_NUM]=[]
-            potential_K[ENTRY_NUM]+=[(hip_candidate.id,hip_candidate.length,direction_acos(hip_candidate))]
+            potential_K[ENTRY_NUM]+=[Pot_K(hip_candidate.id,hip_candidate.length,direction_acos(hip_candidate))]
 
+        
         if ENTRY_NUM in potential_K:
             for mip_candidate in particles:
-                if HIPMIP_pred(mip_candidate,sparse3d_pcluster_semantics_HM)!=MIP: continue #MIP
+                if HM_pred[mip_candidate.id]!=MIP_HM: continue #MIP
                 if not is_contained(mip_candidate.points,mode='detector'): continue #CONTAINED
                 # if mip_candidate.length<mip_range[0] or mip_candidate.length>mip_range[1]:continue #RANGE
-                z=dist_end_start(mip_candidate,[particles[k[0]] for k in potential_K[ENTRY_NUM]])
+                pairs=dist_end_start(mip_candidate,[particles[k.hip_id] for k in potential_K[ENTRY_NUM]])
                 # if z[0]>max_child_dist:continue #START NEAR END OF ONE OF PREV KAONS
-                parent_K=particles[potential_K[ENTRY_NUM][int(z[1])][0]]
+                for z in pairs:
+                    parent_K=particles[potential_K[ENTRY_NUM][int(z[1])].hip_id]
 
-                assert HIPMIP_pred(parent_K,sparse3d_pcluster_semantics_HM)==HIP
+                    assert HM_pred[parent_K.id]==HIP_HM
 
-                kids=children(parent_K.end_point,particles)
-                kids_HM=[(HIPMIP_pred(p[0],sparse3d_pcluster_semantics_HM),p[1],p[2]) for p in kids]
+                    closest_kids=children(parent_K,[p for p in particles if HM_pred[p.id] in [SHOWR_HM,MIP_HM,HIP_HM]],ignore=[mip_candidate.id,parent_K.id])
 
-                # kid_sem_seg=Counter([HIPMIP_pred(p,sparse3d_pcluster_semantics_HM) for p in kids])
-                # if kid_sem_seg[HIP]>0: continue #EXTRA CHILDREN
+                    #TODO if meet up point is in the wall, backtrack and add it to HIP and MIP
 
-                if ENTRY_NUM not in predicted_K: predicted_K[ENTRY_NUM]=[]
-                predicted_K[ENTRY_NUM]+=[(parent_K.id,mip_candidate.id,mip_candidate.length,z[0],kids_HM)]
+                    if ENTRY_NUM not in predicted_K: predicted_K[ENTRY_NUM]=[]
+                    predicted_K[ENTRY_NUM]+=[Pred_K(potential_K[ENTRY_NUM][int(z[1])],mip_candidate.id,mip_candidate.length,z[0],closest_kids)]
         
         if ENTRY_NUM in predicted_K:
             for michel_candidate in particles:
-                if HIPMIP_pred(michel_candidate,sparse3d_pcluster_semantics_HM)!=MICHL_SHP: continue #MICHL
-                z=dist_end_start(michel_candidate,[particles[k[1]] for k in predicted_K[ENTRY_NUM]])
-                # if z[0]>max_child_dist:continue #START NEAR END OF ONE OF PREV MUONS
+                if HM_pred[michel_candidate.id]!=MICHL_SHP: continue #MICHL
+                pairs=dist_end_start(michel_candidate,[particles[k.mip_id] for k in predicted_K[ENTRY_NUM]])
+                for z in pairs:
+                    # if z[0]>max_child_dist:continue #START NEAR END OF ONE OF PREV MUONS
 
-                parent_mu=particles[predicted_K[ENTRY_NUM][int(z[1])][1]]
+                    parent_mu=particles[predicted_K[ENTRY_NUM][int(z[1])].mip_id]
 
-                assert HIPMIP_pred(parent_mu,sparse3d_pcluster_semantics_HM)==MIP
+                    assert HM_pred[parent_mu.id]==MIP_HM
 
-                kids=children(parent_mu.end_point,particles)
-                kids_HM=[(HIPMIP_pred(p[0],sparse3d_pcluster_semantics_HM),p[1],p[2]) for p in kids]
-                # kid_sem_seg=Counter([HIPMIP_pred(p,sparse3d_pcluster_semantics_HM) for p in kids])
-                # if kid_sem_seg[HIP]>0: continue #EXTRA CHILDREN
-                if ENTRY_NUM not in predicted_K_michel: predicted_K_michel[ENTRY_NUM]=[]
+                    K_id:int=predicted_K[ENTRY_NUM][int(z[1])].hip_id
 
-                K_id:int=predicted_K[ENTRY_NUM][int(z[1])][0]
+                    #TODO if meet up point is in the wall, backtrack and add it to HIP and MIP
 
-                predicted_K_michel[ENTRY_NUM]+=[(K_id,parent_mu.id,michel_candidate.id,z[0],kids_HM)]
+                    closest_kids=children(parent_mu,[p for p in particles if HM_pred[p.id] in [SHOWR_HM,MIP_HM,HIP_HM]],ignore=[parent_mu.id,K_id,michel_candidate.id])
+                    # if kid_sem_seg[HIP]>0: continue #EXTRA CHILDREN
+                    if ENTRY_NUM not in predicted_K_michel: predicted_K_michel[ENTRY_NUM]=[]
+
+                    predicted_K_michel[ENTRY_NUM]+=[Pred_K_Mich(predicted_K[ENTRY_NUM][int(z[1])],michel_candidate.id,z[0],closest_kids)]
         # END FIND PRIMARY KAONS LOOP---------------------
 
         # FIND LAMBDAS LOOP---------------------------
         for lam_hip_candidate in particles:
             if not is_contained(lam_hip_candidate.points,mode='detector'): continue #CONTAINED
-            if HIPMIP_pred(lam_hip_candidate,sparse3d_pcluster_semantics_HM)!=HIP: continue #HIP
+            if HM_pred[lam_hip_candidate.id]!=HIP_HM: continue #HIP
             for lam_mip_candidate in particles:
                 if not is_contained(lam_mip_candidate.points,mode='detector'): continue #CONTAINED
-                if HIPMIP_pred(lam_mip_candidate,sparse3d_pcluster_semantics_HM)!=MIP: continue #MIP
+                if HM_pred[lam_mip_candidate.id]!=MIP_HM: continue #MIP
 
                 VAE=vertex_angle_error(lam_mip_candidate,lam_hip_candidate,interactions)
                 # if VAE>max_vertex_error: continue
 
-                coll_dist=collision_distance(hip_candidate,mip_candidate)
+                coll_dist=collision_distance(lam_hip_candidate,lam_mip_candidate)
                 # if coll_dist[2]>max_hip_to_mip_dist_lam: continue  #DIST FROM MIP TO HIP START
 
                 L_decay_len=lambda_decay_len(lam_hip_candidate,lam_mip_candidate,interactions)
@@ -241,13 +234,12 @@ def main(HMh5,analysish5,mode:bool=True
                 # if L_mass<lambda_mass_bounds[0] or L_mass>lambda_mass_bounds[1]: continue #KINEMATIC
                 AM=lambda_AM(lam_hip_candidate,lam_mip_candidate,interactions)
 
-                kids=lambda_children(lam_mip_candidate,lam_hip_candidate,particles)
-                kids_HM=[(HIPMIP_pred(p[0],sparse3d_pcluster_semantics_HM),p[1],p[2]) for p in kids]
+                closest_kids=lambda_children(lam_mip_candidate,lam_hip_candidate,[p for p in particles if HM_pred[p.id] in [SHOWR_HM,MIP_HM,HIP_HM]])
 
-                # kid_sem_seg=Counter([HIPMIP_pred(p,sparse3d_pcluster_semantics_HM) for p in kids])
-                # if Counter(kid_sem_seg)!=Counter([HIP,MIP]): continue #TODO may wish to relax 
-                #TODO make some cut on the AM information (lambda_AM)
-                predicted_L[ENTRY_NUM]+=[(lam_hip_candidate.id,lam_mip_candidate.id,VAE,L_mass2,L_decay_len,AM,coll_dist,kids_HM)]
+                #TODO if meet up point is in the wall, backtrack and add it to HIP and MIP
+
+                if ENTRY_NUM not in predicted_L: predicted_L[ENTRY_NUM]=[]
+                predicted_L[ENTRY_NUM]+=[Pred_L(lam_hip_candidate.id,lam_mip_candidate.id,VAE,L_mass2,L_decay_len,AM,coll_dist,closest_kids)]
 
 
         # END FIND LAMBDAS LOOP---------------------------
@@ -268,7 +260,15 @@ def main(HMh5,analysish5,mode:bool=True
         #     efficiency_L=len(set(predicted_L)&set(true_lambdas))/len(true_lambdas) #total efficiency
         #     purity_L=len(set(predicted_L)&set(true_lambdas))/len(predicted_L) #total purity
 
-
+    print(predicted_K)
+    print(predicted_K_michel)
+    print(predicted_L)
+    if outfile!='':
+        np.save(outfile,[predicted_K,predicted_K_michel,predicted_L])
     return [predicted_K,predicted_K_michel,predicted_L]
+#TODO use HM_score
 if __name__ == "__main__":
-    main(mode=True,HMh5="utils/output_HM.h5",analysish5= '/home/dummy.h5')
+    main(mode=True,HMh5="lambdas/output_0_0000-analysis_HM_truth.h5",analysish5= 'lambdas/output_0_0000-analysis_truth.h5',outfile='test_L.npy')
+    main(mode=True,HMh5="kaons/output_0_0000-analysis_HM_truth.h5",analysish5= 'kaons/output_0_0000-analysis_truth.h5',outfile='test_K.npy')
+    # main(mode=True,HMh5="kaons/output_0_0000-analysis_HM_truth.h5",analysish5= 'kaons/output_0_0000-analysis_truth.h5')
+

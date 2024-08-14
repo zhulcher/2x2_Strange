@@ -1,16 +1,20 @@
-# from pandas import Float32Dtype
 from spine.utils.geo.base import *
 import spine
 from spine.utils.globals import *
 from spine.utils.vertex import *
 import numpy as np
+from collections import Counter
+from scipy import stats as st
 
 
 #TODO things I would like added in truth:
     #children_id
 
-HIP=2
-MIP=3
+#TODO do I need the Kaon/ Michel flash timing?
+
+HIP_HM=5
+MIP_HM=1
+SHOWR_HM=0
 
 
 Particle=spine.RecoParticle|spine.TruthParticle
@@ -18,8 +22,114 @@ Interaction=spine.RecoInteraction|spine.TruthInteraction
 Met=spine.Meta
 Geo=Geometry(detector='2x2')
 
+class Pot_K:
+    hip_id: int
+    hip_len: float
+    dir_acos: float
 
-def is_contained(pos:np.ndarray,mode:str,margin:float=0)->bool:
+    '''
+    This is a storage class for primary Kaons and their cut parameters
+    '''
+
+    def __init__(self, hip_id,hip_len,dir_acos):
+        self.hip_id = hip_id 
+        self.hip_len = hip_len
+        self.dir_acos=dir_acos
+
+    def apply_cuts_K(self):
+        pass
+
+    def output(self):
+        return [self.hip_id,self.hip_len,self.dir_acos]
+
+class Pred_K(Pot_K):
+    mip_id: int
+    mip_len: float
+    dist_to_hip: float
+    K_closest_kids: list[float]
+
+    '''
+    This is a storage class for primary Kaons with muon daughter and their cut parameters
+    '''
+
+    def __init__(self, pot_k:Pot_K,mip_id:int,mip_len:float,dist_to_hip:float,K_closest_kids:list[float]):
+        self.hip_id = pot_k.hip_id 
+        self.hip_len = pot_k.hip_len
+        self.dir_acos=pot_k.dir_acos
+
+        self.mip_id = mip_id 
+        self.mip_len = mip_len
+        self.dist_to_hip=dist_to_hip
+        self.K_closest_kids=K_closest_kids
+
+    def apply_cuts_mu(self):
+        pass
+
+    def output(self):
+        return [self.hip_id,self.hip_len,self.dir_acos,self.mip_id,self.mip_len,self.dist_to_hip,self.K_closest_kids]
+
+class Pred_K_Mich(Pred_K):
+    mich_id: int
+    dist_to_mich: float
+    Mu_closest_kids: list[float]
+
+    '''
+    This is a storage class for primary Kaons with muon daughter and michel and their cut parameters
+    '''
+
+    def __init__(self, pred_k:Pred_K,mich_id,dist_to_mich,Mu_closest_kids):
+
+        self.hip_id = pred_k.hip_id 
+        self.hip_len = pred_k.hip_len
+        self.dir_acos=pred_k.dir_acos
+
+        self.mip_id = pred_k.mip_id 
+        self.mip_len = pred_k.mip_len
+        self.dist_to_hip=pred_k.dist_to_hip
+        self.K_closest_kids=pred_k.K_closest_kids
+
+        self.mich_id=mich_id
+        self.dist_to_mich=dist_to_mich
+        self.Mu_closest_kids=Mu_closest_kids
+
+    def apply_cuts_mich(self):
+        pass
+
+    def output(self):
+        return [self.hip_id,self.hip_len,self.dir_acos,self.mip_id,self.mip_len,self.dist_to_hip,self.K_closest_kids,self.mich_id,self.dist_to_mich,self.Mu_closest_kids]
+
+class Pred_L:
+    hip_id: int
+    hip_len: float
+    VAE: float
+    L_mass2:float
+    L_decay_len: float
+    AM: float
+    coll_dist: float
+    closest_kids: list[float]
+
+    '''
+    This is a storage class for primary Lambdas and their cut parameters
+    '''
+
+    def __init__(self, hip_id,mip_id,VAE,L_mass2,L_decay_len,AM,coll_dist,closest_kids):
+        self.hip_id=hip_id
+        self.mip_id=mip_id
+        self.VAE=VAE
+        self.L_mass2=L_mass2
+        self.L_decay_len=L_decay_len
+        self.AM=AM
+        self.coll_dist=coll_dist
+        self.closest_kids=closest_kids
+
+    def apply_cuts_K(self):
+        pass
+
+    def output(self):
+        return [self.hip_id,self.mip_id,self.VAE,self.L_mass2,self.L_decay_len,self.AM,self.coll_dist,self.closest_kids]
+
+
+def is_contained(pos:np.ndarray,mode:str,margin:float=2)->bool:
     '''
     Checks if a point is near dead volume of the detector
     ----------
@@ -62,7 +172,31 @@ def HIPMIP_pred(particle:Particle,sparse3d_pcluster_semantics_HM:np.ndarray)->in
     if len(particle.depositions)==0:raise ValueError("No voxels")
     #slice a set of voxels for the target particle
     HM_Pred=sparse3d_pcluster_semantics_HM[particle.index,-1]
-    return max(set(HM_Pred), key = HM_Pred.count)
+    # print(HM_Pred,type(HM_Pred))
+    return st.mode(HM_Pred).mode
+
+def HM_score(particle:Particle,sparse3d_pcluster_semantics_HM:np.ndarray)->float:
+    '''
+    Returns the fraction of voxels for a particle whose HM semantic segmentation prediction agrees
+    with that of the particle itself as decided by HIPMIP_pred
+
+    Parameters
+    ----------
+    particle : spine.Particle
+        Particle object with cluster information and unique semantic segmentation prediction
+    sparse3d_pcluster_semantics_HM : np.ndarray
+        HIP/MIP semantic segmentation predictions for each voxel in an image
+
+    Returns
+    -------
+    int
+        Fraction of voxels whose HM semantic segmentation agrees with that of the particle
+    '''
+    if len(particle.depositions)==0:raise ValueError("No voxels")
+    #slice a set of voxels for the target particle
+    HM_Pred=sparse3d_pcluster_semantics_HM[particle.index,-1]
+    pred=max(set(HM_Pred), key = HM_Pred.count)
+    return Counter(HM_Pred)[pred]/len(HM_Pred)
     
 def direction_acos(particle:Particle, direction=np.array([0.,0.,1.])) -> float:
     '''
@@ -124,12 +258,11 @@ def collision_distance(particle1:Particle,particle2:Particle):
     return [t1,t2,min_dist]
 
     
-def dist_end_start(particle:Particle,parent_candidates:list[Particle])->list[float]:
+def dist_end_start(particle:Particle,parent_candidates:list[Particle])->list[list[float]]:
     
     '''
-    Returns minimum distance between the start of child particle and the end
+    Returns distance between the start of child particle and the end
     of every parent candidate supplied, along with the parent candidate identified.
-    Returns (np.inf, None) if the parent_candidate list is empty
 
     Parameters
     ----------
@@ -140,26 +273,21 @@ def dist_end_start(particle:Particle,parent_candidates:list[Particle])->list[flo
     
     Returns
     -------
-    [float,spine.Particle]
-        Distance from parent end to child start and corresponding parent
+    [list[float,float]]
+        Distance from parent end to child start and corresponding entry in parent candidate list
 
     '''
-    idp=np.nan
-    N=0
-    shortest_dist=np.inf
-    for p in parent_candidates:
-        if np.linalg.norm(p.end_point-particle.start_point)<shortest_dist:
-            v=p.end_point-particle.start_point
-            shortest_dist=np.dot(v,v)
-            idp=N
-        N+=1
-    return [shortest_dist,idp]
+    out=[]
+    for n in range(len(parent_candidates)):
+        out+=[[float(np.linalg.norm(parent_candidates[n].end_point-particle.start_point)),n]]
+    return out
 
 
-def is_child_eps_angle(parent_end:np.ndarray,child:Particle,max_dist:float=np.inf,max_angle:float=np.pi,min_dist:float=0)->tuple[bool,float,float]:
+
+def is_child_eps_angle(parent_end:np.ndarray,child:Particle)->tuple[float,float]:
     '''
-    Returns True iff the child particle start is within dist from the parent particle end and the child particle points back
-    to the parent particle end with an angular deviation smaller than angle
+    Returns separation from parent particle end to child particle start and
+    angle between child start direction and direction from parent end to child start 
 
     Parameters
     ----------
@@ -167,18 +295,11 @@ def is_child_eps_angle(parent_end:np.ndarray,child:Particle,max_dist:float=np.in
         parent end location
     child: spine.Particle
         Particle object
-    max_dist: float
-        max dist from child start to parent end 
-    max_angle: float
-        max angle between line pointing from parent end to child start and child initial direction
-    min_dist: float
-        if child start closer than this from parent end, return True
-
     
     Returns
     -------
-        bool
-            this is a child of the parent, according to the prescription outlined
+        [float,float,bool]
+            distance from child start to parent end, angle between child start direction and direction from parent end to child start 
     '''
     true_dir=child.start_point-parent_end
     separation=float(np.linalg.norm(true_dir))
@@ -186,42 +307,36 @@ def is_child_eps_angle(parent_end:np.ndarray,child:Particle,max_dist:float=np.in
         angle=0
     else:
         angle=np.arccos(np.dot(true_dir,child.start_dir)/separation)
-    if separation<min_dist: return (True, separation,angle)
-    if separation>max_dist: return (False,separation,angle)
-    if angle>max_angle: return (False,separation,angle)
-    return (True,separation,angle)
+    return (separation,angle)
 
-def children(parent_end:np.ndarray,particle_list:list[Particle],max_dist:float=np.inf,max_angle:float=np.pi,min_dist:float=0)->list[tuple[Particle,float,float]]:
+def children(parent:Particle,particle_list:list[Particle],ignore:list[int])->list[float]:
     '''
     Returns children candidates
 
     Parameters
     ----------
-    parent_end : np.ndarray(3)
-        parent end location
+    parent : spine.Particle
+        parent particle
     particle_list: List(spine.Particle)
         List of spine particle objects
-    max_dist: float
-        max dist from child start to parent end 
-    max_angle: float
-        max angle between line pointing from parent end to child start and child initial direction
-    min_dist: float
-        if child start closer than this from parent end, return True
+    ignore: List(int)
+        list of particle ids to ignore
     
     Returns
     -------
-        list[Particle]
-            children candidates
+        [float,float]:
+            minimum distance and angle as defined in 'is_child_eps_angle' between a parent and any potential child other than the particles in ignore
     '''
-    children=[]
+    children=[np.inf,np.inf]
     for p in particle_list:
-        is_child=is_child_eps_angle(parent_end,p,max_dist,max_angle,min_dist)
-        if is_child[0]:
-            children+=[(p,is_child[1],is_child[2])]
+        if p.id in ignore: continue
+        is_child=is_child_eps_angle(parent.end_point,p)
+        children[0]=min(children[0],is_child[0])
+        children[1]=min(children[1],is_child[1])
     return children
     
 
-def lambda_children(hip:Particle,mip:Particle,particle_list:list[Particle],max_dist:float=np.inf,max_angle:float=np.pi,min_dist:float=0)->list[tuple[Particle,float,float]]:
+def lambda_children(hip:Particle,mip:Particle,particle_list:list[Particle])->list[float]:
     '''
     Returns children candidates for lambda particle
 
@@ -242,18 +357,18 @@ def lambda_children(hip:Particle,mip:Particle,particle_list:list[Particle],max_d
     
     Returns
     -------
-        list[Particle]
-            children candidates
+        [float,float]:
+            minimum distance and angle as defined in 'is_child_eps_angle' between the potential lambda and any potential child other than the hip and mip
     '''
     children=[]
-    
-    guess_start=get_pseudovertex(start_points=[hip.start_point,mip.start_point],
+    guess_start=get_pseudovertex(start_points=np.array([hip.start_point,mip.start_point],dtype=float),
                                  directions=[hip.start_dir,mip.start_dir])
-    children=[]
+    children=[np.inf,np.inf]
     for p in particle_list:
-        is_child=is_child_eps_angle(guess_start,p,max_dist,max_angle,min_dist)
-        if is_child[0]:
-            children+=[(p,is_child[1],is_child[2])]
+        if p.id==hip.id or p.id==mip.id: continue
+        is_child=is_child_eps_angle(guess_start,p)
+        children[0]=min(children[0],is_child[0])
+        children[1]=min(children[1],is_child[1])
     return children
 
 def lambda_decay_len(hip:Particle,mip:Particle,interactions:list[Interaction])->float:
@@ -274,7 +389,7 @@ def lambda_decay_len(hip:Particle,mip:Particle,interactions:list[Interaction])->
     float
         distance from lambda decay point to vertex of interaction
     '''
-    guess_start=get_pseudovertex(start_points=[hip.start_point,mip.start_point],
+    guess_start=get_pseudovertex(start_points=np.array([hip.start_point,mip.start_point],dtype=float),
                                  directions=[hip.start_dir,mip.start_dir])
     idx=hip.interaction_id
     return float(np.linalg.norm(interactions[idx].vertex-guess_start))
@@ -298,7 +413,7 @@ def lambda_AM(hip:Particle,mip:Particle,interactions:list[Interaction])->list[fl
     '''
     inter=interactions[hip.interaction_id].vertex
 
-    guess_start=get_pseudovertex(start_points=[hip.start_point,mip.start_point],
+    guess_start=get_pseudovertex(start_points=np.array([hip.start_point,mip.start_point],dtype=float),
                                  directions=[hip.start_dir,mip.start_dir])
     Lvec=guess_start-inter
 
@@ -364,7 +479,7 @@ def vertex_angle_error(hip:Particle,mip:Particle,interactions:list[Interaction])
 
     
     inter=interactions[hip.interaction_id].vertex
-    guess_start=get_pseudovertex(start_points=[hip.start_point,mip.start_point],
+    guess_start=get_pseudovertex(start_points=np.array([hip.start_point,mip.start_point],dtype=float),
                                  directions=[hip.start_dir,mip.start_dir])
     Lvec1=guess_start-inter
 
