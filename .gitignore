@@ -165,3 +165,7 @@ cython_debug/
 *ipynb
 *.json
 *.root
+plots/*
+*.npy
+edep-sim_testing/*
+*.csv

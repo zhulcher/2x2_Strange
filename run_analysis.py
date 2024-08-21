@@ -93,7 +93,7 @@ sys.path.append(SOFTWARE_DIR)
 
 from spine.data.meta import *
 
-def main(HMh5,analysish5,mode:bool=True,outfile=''
+def main(HMh5,analysish5,mode:bool=True,outfile='',use_only_truth=False
         #,min_hip_range=0,max_acos=0,mip_range=[0,np.inf],
         # min_lambda_decay_len=0,lambda_mass_bounds=[-np.inf,np.inf],
          #max_hip_to_mip_dist_lam=np.inf,max_vertex_error=np.inf,
@@ -141,14 +141,15 @@ def main(HMh5,analysish5,mode:bool=True,outfile=''
             particles:list[Particle] =data['reco_particles']
             interactions:list[Interaction] =data['reco_interactions']
 
+        if use_only_truth and not mode: raise Exception("How exactly do you get truth out of reco?")
+
         #check that voxels line up, sometimes
         if random.randint(0, 100)==0:
             meta:Met= data['meta']
             p_to_check=random.randint(0, len(particles)-1)
-            idx=particles[p_to_check].id
+            idx=particles[p_to_check].index
             voxels1= sparse3d_pcluster_semantics_HM[idx,1:4]
-            voxels2=particles[p_to_check].points
-            # assert sum(voxels1)==sum(voxels2)
+            voxels2=meta.to_px(particles[p_to_check].points,floor=True)
             assert set(meta.index(voxels1))==set(meta.index(voxels2))
 
         #STANDARD [SHOWR_SHP, TRACK_SHP, MICHL_SHP, DELTA_SHP, LOWES_SHP,UNKWN_SHP]
@@ -167,18 +168,27 @@ def main(HMh5,analysish5,mode:bool=True,outfile=''
             # print("we have a HIP")
             if not is_contained(hip_candidate.points,mode='detector'): continue #CONTAINED
             if not is_contained(np.array([hip_candidate.start_point]),mode='tpc',margin=1): continue #CONTAINED VERTEX
-            # if hip_candidate.length<min_hip_range: continue #RANGE
+            if use_only_truth:
+                # print(hip_candidate.pdg_code)
+                if hip_candidate.pdg_code!=321: continue
+            # if hip_candidate.reco_length<min_hip_range: continue #RANGE
             # if direction_acos(hip_candidate)>max_acos: continue #FORWARD
             if ENTRY_NUM not in potential_K: potential_K[ENTRY_NUM]=[]
-            potential_K[ENTRY_NUM]+=[Pot_K(hip_candidate.id,hip_candidate.length,direction_acos(hip_candidate))]
+            # print("hip len",hip_candidate.reco_length)
+            potential_K[ENTRY_NUM]+=[Pot_K(hip_candidate.id,hip_candidate.reco_length,direction_acos(hip_candidate))]
 
         
         if ENTRY_NUM in potential_K:
             for mip_candidate in particles:
                 if HM_pred[mip_candidate.id]!=MIP_HM: continue #MIP
                 if not is_contained(mip_candidate.points,mode='detector'): continue #CONTAINED
-                # if mip_candidate.length<mip_range[0] or mip_candidate.length>mip_range[1]:continue #RANGE
+                # if mip_candidate.reco_length<mip_range[0] or mip_candidate.reco_length>mip_range[1]:continue #RANGE
                 pairs=dist_end_start(mip_candidate,[particles[k.hip_id] for k in potential_K[ENTRY_NUM]])
+
+                if use_only_truth:
+                    # print(mip_candidate.pdg_code,mip_candidate.parent_pdg_code,mip_candidate.creation_process)
+                    if mip_candidate.pdg_code!=-13: continue
+                    if mip_candidate.parent_pdg_code!=321: continue
                 # if z[0]>max_child_dist:continue #START NEAR END OF ONE OF PREV KAONS
                 for z in pairs:
                     parent_K=particles[potential_K[ENTRY_NUM][int(z[1])].hip_id]
@@ -190,17 +200,25 @@ def main(HMh5,analysish5,mode:bool=True,outfile=''
                     #TODO if meet up point is in the wall, backtrack and add it to HIP and MIP
 
                     if ENTRY_NUM not in predicted_K: predicted_K[ENTRY_NUM]=[]
-                    predicted_K[ENTRY_NUM]+=[Pred_K(potential_K[ENTRY_NUM][int(z[1])],mip_candidate.id,mip_candidate.length,z[0],closest_kids)]
+                    # print(mip_candidate.reco_length)
+                    predicted_K[ENTRY_NUM]+=[Pred_K(potential_K[ENTRY_NUM][int(z[1])],mip_candidate.id,mip_candidate.reco_length,z[0],closest_kids)]
         
         if ENTRY_NUM in predicted_K:
             for michel_candidate in particles:
                 if HM_pred[michel_candidate.id]!=MICHL_SHP: continue #MICHL
                 pairs=dist_end_start(michel_candidate,[particles[k.mip_id] for k in predicted_K[ENTRY_NUM]])
+
+                if use_only_truth:
+                    if michel_candidate.pdg_code!=-11: continue
+                    if michel_candidate.parent_pdg_code!=-13: continue
+                    if michel_candidate.ancestor_pdg_code!=321: continue
                 for z in pairs:
                     # if z[0]>max_child_dist:continue #START NEAR END OF ONE OF PREV MUONS
 
                     parent_mu=particles[predicted_K[ENTRY_NUM][int(z[1])].mip_id]
 
+                    # print(parent_mu.reco_length,parent_mu.reco_length,michel_candidate.end_t,parent_mu.last_step,michel_candidate.first_step)
+                    # print()
                     assert HM_pred[parent_mu.id]==MIP_HM
 
                     K_id:int=predicted_K[ENTRY_NUM][int(z[1])].hip_id
@@ -211,20 +229,56 @@ def main(HMh5,analysish5,mode:bool=True,outfile=''
                     # if kid_sem_seg[HIP]>0: continue #EXTRA CHILDREN
                     if ENTRY_NUM not in predicted_K_michel: predicted_K_michel[ENTRY_NUM]=[]
 
+                    # dt=np.nan
+                    # ddist=np.nan
+                    # if mode and is_contained(michel_candidate.start_point,mode="tpc",margin=1) and is_contained(parent_mu.end_point,mode="tpc",margin=2):
+                    #     # t_to_dist=(parent_mu.t-michel_candidate.t)/np.linalg.norm(parent_mu.last_step-michel_candidate.first_step)*1.5/1000/10
+                    #     if michel_candidate.parent_id==parent_mu.id:
+                    #         dt=(michel_candidate.t-parent_mu.t)
+                    #         ddist=np.linalg.norm(parent_mu.last_step-michel_candidate.first_step)
+                    #         # print(np.abs(parent_mu.last_step-michel_candidate.first_step)-np.array([1.648/10/1000*dt,0,0]))
+                    #         # print(np.linalg.norm(parent_mu.last_step-michel_candidate.first_step),parent_mu.last_step,michel_candidate.first_step)
                     predicted_K_michel[ENTRY_NUM]+=[Pred_K_Mich(predicted_K[ENTRY_NUM][int(z[1])],michel_candidate.id,z[0],closest_kids)]
         # END FIND PRIMARY KAONS LOOP---------------------
-
+        #TODO use direction acos for lambda 
+        #TODO reorganize code around muons
         # FIND LAMBDAS LOOP---------------------------
         for lam_hip_candidate in particles:
             if not is_contained(lam_hip_candidate.points,mode='detector'): continue #CONTAINED
             if HM_pred[lam_hip_candidate.id]!=HIP_HM: continue #HIP
+            if use_only_truth:
+                if abs(lam_hip_candidate.pdg_code)!=2212: continue
+                # if not np.isclose(np.linalg.norm(lam_hip_candidate.end_momentum),0):continue
+                skip=False
+                for p in particles:
+                    if p.creation_process=='4::121' and p.parent_id==lam_hip_candidate.id: 
+                        skip=True
+                        break
+                if skip: continue
+
             for lam_mip_candidate in particles:
                 if not is_contained(lam_mip_candidate.points,mode='detector'): continue #CONTAINED
                 if HM_pred[lam_mip_candidate.id]!=MIP_HM: continue #MIP
+                if use_only_truth:
+                    if abs(lam_mip_candidate.pdg_code)!=211: continue
+                    # if not np.isclose(np.linalg.norm(lam_mip_candidate.end_momentum),0):continue
+                    # if HM_pred[lam_mip_candidate.id]==MIP_HM and abs(lam_mip_candidate.pdg_code)==2212: raise Exception("HOW?",sparse3d_pcluster_semantics_HM[lam_mip_candidate.index,-1])
+                    if lam_mip_candidate.parent_id!=lam_hip_candidate.parent_id: continue
+                    if abs(lam_mip_candidate.parent_pdg_code)!=3122: continue
+                    skip=False
+                    for p in particles:
+                        if p.creation_process=='4::121' and p.parent_id==lam_hip_candidate.parent_id: 
+                            skip=True
+                            break
+                        if p.creation_process=='4::121' and p.parent_id==lam_hip_candidate.id: 
+                            skip=True
+                            break
+                    if skip: continue
+                    if lam_hip_candidate.creation_process!='6::201' or lam_mip_candidate.creation_process!='6::201': continue
+                    print(lam_mip_candidate.end_momentum,lam_hip_candidate.end_momentum,lam_hip_candidate.reco_ke,lam_mip_candidate.reco_ke)
 
                 VAE=vertex_angle_error(lam_mip_candidate,lam_hip_candidate,interactions)
                 # if VAE>max_vertex_error: continue
-
                 coll_dist=collision_distance(lam_hip_candidate,lam_mip_candidate)
                 # if coll_dist[2]>max_hip_to_mip_dist_lam: continue  #DIST FROM MIP TO HIP START
 
@@ -240,7 +294,6 @@ def main(HMh5,analysish5,mode:bool=True,outfile=''
 
                 if ENTRY_NUM not in predicted_L: predicted_L[ENTRY_NUM]=[]
                 predicted_L[ENTRY_NUM]+=[Pred_L(lam_hip_candidate.id,lam_mip_candidate.id,VAE,L_mass2,L_decay_len,AM,coll_dist,closest_kids)]
-
 
         # END FIND LAMBDAS LOOP---------------------------
 
@@ -264,11 +317,21 @@ def main(HMh5,analysish5,mode:bool=True,outfile=''
     print(predicted_K_michel)
     print(predicted_L)
     if outfile!='':
-        np.save(outfile,[predicted_K,predicted_K_michel,predicted_L])
+        np.save(outfile,np.array([predicted_K,predicted_K_michel,predicted_L]))
     return [predicted_K,predicted_K_michel,predicted_L]
 #TODO use HM_score
 if __name__ == "__main__":
-    main(mode=True,HMh5="lambdas/output_0_0000-analysis_HM_truth.h5",analysish5= 'lambdas/output_0_0000-analysis_truth.h5',outfile='test_L.npy')
-    main(mode=True,HMh5="kaons/output_0_0000-analysis_HM_truth.h5",analysish5= 'kaons/output_0_0000-analysis_truth.h5',outfile='test_K.npy')
+    # main(mode=True,HMh5="lambdas_10/output_0_0000-analysis_HM_truth.h5",analysish5= 'lambdas_10/output_0_0000-analysis_truth.h5',outfile='npyfiles/test_L_10.npy')
+    # main(mode=True,HMh5="kaons_10/output_0_0000-analysis_HM_truth.h5",analysish5= 'kaons_10/output_0_0000-analysis_truth.h5',outfile='npyfiles/test_K_10.npy')
     # main(mode=True,HMh5="kaons/output_0_0000-analysis_HM_truth.h5",analysish5= 'kaons/output_0_0000-analysis_truth.h5')
+
+
+    
+  
+    main(mode=True,HMh5="lambdas_250/output_0_0000-analysis_HM_truth.h5",analysish5= 'lambdas_250/output_0_0000-analysis_truth.h5',outfile='npyfiles/test_L_250_only_truth.npy',use_only_truth=True)
+    main(mode=True,HMh5="lambdas_250/output_0_0000-analysis_HM_truth.h5",analysish5= 'lambdas_250/output_0_0000-analysis_truth.h5',outfile='npyfiles/test_L_250.npy')
+    # main(mode=True,HMh5="kaons_250/output_0_0000-analysis_HM_truth.h5",analysish5= 'kaons_250/output_0_0000-analysis_truth.h5',outfile='npyfiles/test_K_250_only_truth.npy',use_only_truth=True)
+    # main(mode=True,HMh5="kaons_250/output_0_0000-analysis_HM_truth.h5",analysish5= 'kaons_250/output_0_0000-analysis_truth.h5',outfile='npyfiles/test_K_250.npy')
+
+
 

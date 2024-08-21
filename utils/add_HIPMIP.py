@@ -107,8 +107,10 @@ for i_entry in range(n_evts):
     # break
     for j in range(len(truthinfo)):
         
-        if abs(truthinfo.as_vector()[j].pdg_code()) not in [2212,321]:continue
+        if (abs(truthinfo.as_vector()[j].pdg_code()) not in [2212,321] and abs(truthinfo.as_vector()[j].pdg_code())< 1000000000):continue
+        
         if len(voxelmap.as_vector()[j])==0: continue
+        # print(abs(truthinfo.as_vector()[j].pdg_code()))
         # print("got one")
         # print(truthinfo.as_vector()[j].pdg_code(),len(voxelmap.as_vector()[j]))
         for k in range(len(voxelmap.as_vector()[j])):

@@ -8,9 +8,22 @@ from scipy import stats as st
 
 
 #TODO things I would like added in truth:
-    #children_id
+    # spine.TruthParticle.children_id for ease of use
+    #truth length so truthparticle.length works
+    #spine.TruthParticle.mass propagated to truth particles in larcv
+    #spine.TruthParticle.parent_end_momentum
+    #every particle's spine.TruthParticle.end_momentum
+    #spine.TruthParticle.reco_momentum
+    #spine.TruthParticle.reco_ke
 
-#TODO do I need the Kaon/ Michel flash timing?
+#TODO things I would like at some point
+    #some sort of particle flow predictor
+
+#TODO things I would like fixed:
+    #michel timing issue 
+    
+#TODO things I don't know that I need
+    #Kaon/ Michel flash timing?
 
 HIP_HM=5
 MIP_HM=1
@@ -72,6 +85,7 @@ class Pred_K_Mich(Pred_K):
     mich_id: int
     dist_to_mich: float
     Mu_closest_kids: list[float]
+    decay_t_to_dist: float
 
     '''
     This is a storage class for primary Kaons with muon daughter and michel and their cut parameters
@@ -92,6 +106,9 @@ class Pred_K_Mich(Pred_K):
         self.dist_to_mich=dist_to_mich
         self.Mu_closest_kids=Mu_closest_kids
 
+        # self.decay_t=decay_t
+        # self.decay_sep=decay_sep
+
     def apply_cuts_mich(self):
         pass
 
@@ -104,7 +121,7 @@ class Pred_L:
     VAE: float
     L_mass2:float
     L_decay_len: float
-    AM: float
+    AM: list[float]
     coll_dist: float
     closest_kids: list[float]
 
@@ -112,13 +129,13 @@ class Pred_L:
     This is a storage class for primary Lambdas and their cut parameters
     '''
 
-    def __init__(self, hip_id,mip_id,VAE,L_mass2,L_decay_len,AM,coll_dist,closest_kids):
+    def __init__(self, hip_id,mip_id,VAE,L_mass2,L_decay_len,AM:list[float],coll_dist,closest_kids):
         self.hip_id=hip_id
         self.mip_id=mip_id
         self.VAE=VAE
         self.L_mass2=L_mass2
         self.L_decay_len=L_decay_len
-        self.AM=AM
+        self.AM:list[float]=AM
         self.coll_dist=coll_dist
         self.closest_kids=closest_kids
 
@@ -129,7 +146,7 @@ class Pred_L:
         return [self.hip_id,self.mip_id,self.VAE,self.L_mass2,self.L_decay_len,self.AM,self.coll_dist,self.closest_kids]
 
 
-def is_contained(pos:np.ndarray,mode:str,margin:float=2)->bool:
+def is_contained(pos:np.ndarray,mode:str,margin:float=3)->bool:
     '''
     Checks if a point is near dead volume of the detector
     ----------
@@ -434,6 +451,8 @@ def lambda_AM(hip:Particle,mip:Particle,interactions:list[Interaction])->list[fl
 
         asymm=abs((p1_L-p2_L)/(p1_L+p2_L))
         pt=p1_T+p2_T
+        # print("very good",asymm,p1_L,p2_L,Lvec)
+        # assert asymm>=-1 and asymm<=1, print("help me",asymm,p1_L,p2_L,Lvec)
     return [asymm,pt]
 
 
@@ -455,7 +474,12 @@ def lambda_mass_2(hip:Particle,mip:Particle)->float:
         reconstructed lambda mass squared
     '''
     # LAM_MASS=1115.60 #lambda mass in MeV
-    L_mass2=2*(PROT_MASS*mip.ke+hip.ke*PION_MASS-np.dot(hip.momentum,mip.momentum))+(PROT_MASS+PION_MASS)**2
+    assert mip.ke>0 #print(mip.ke,"very bad",mip.id,mip.parent_pdg_code,mip.pid,mip.pdg_code,mip.energy_init)
+    assert hip.ke>0 #print(hip.ke,"very bad",hip.id,hip.parent_pdg_code,hip.pid,hip.pdg_code,hip.energy_init)
+
+    L_mass2=PROT_MASS**2+PION_MASS**2+2*(mip.ke+PION_MASS)*(hip.ke+PROT_MASS)-2*np.dot(hip.momentum,mip.momentum)
+
+    # if L_mass2<0 or L_mass2>2*1115.6**2: print(L_mass2,hip.parent_track_id,mip.parent_track_id,hip.parent_pdg_code,mip.ke,hip.ke,np.dot(hip.momentum,mip.momentum),[hip.pdg_code,hip.id,hip.creation_process],[mip.pdg_code,mip.id,mip.creation_process])
     return L_mass2
 
 def vertex_angle_error(hip:Particle,mip:Particle,interactions:list[Interaction])->float:
