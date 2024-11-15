@@ -1,41 +1,133 @@
+""" 
+This file contains output classes and cut functions useful for reconstructing kaons and 
+lambdas in a liquid argon TPC using the reconstruction package SPINE https://github.com/DeepLearnPhysics/spine
+"""
+# from ast import Module
 from collections import Counter
-import spine
+# import string
+from spine.data.out import TruthParticle,RecoParticle,RecoInteraction,TruthInteraction
 from spine.utils.globals import PROT_MASS, PION_MASS
-from spine.utils.geo.base import Geometry
+from spine.utils.geo.manager import Geometry
 from spine.utils.vertex import get_pseudovertex
 import numpy as np
 from scipy import stats as st
+from spine.utils.globals import MICHL_SHP,TRACK_SHP,SHOWR_SHP
 
 
 # TODO things I would like added in truth:
-# spine.TruthParticle.children_id for ease of use
-# truth length so truthparticle.length works
-# spine.TruthParticle.mass propagated to truth particles in larcv
-# spine.TruthParticle.parent_end_momentum
-# every particle's spine.TruthParticle.end_momentum
-# spine.TruthParticle.reco_momentum
-# spine.TruthParticle.reco_ke
-# spine.TruthParticle.reco_end_momentum
-# spine.RecoParticle.end_momentum
+# TODO spine.TruthParticle.children_id for ease of use
+# TODO spine.TruthParticle.mass propagated to truth particles in larcv
+# TODO spine.TruthParticle.parent_end_momentum
+# TODO id vs parentid vs orig id vs the actual parentid that I want
 
 # TODO things I would like at some point:
-# some sort of particle flow predictor
+# TODO some sort of particle flow predictor
+# TODO decay at rest predictor?
 
 # TODO things I would like fixed:
-# michel timing issue
+# TODO michel timing issue
+# TODO multiple contribs in samples
+
+# TODO deal with particles with small scatters wih length cut
 
 # TODO things I don't know that I need but may end up being useful
-# Kaon/ Michel flash timing?
+# TODO Kaon/ Michel flash timing?
+
 
 HIP_HM = 5
-MIP_HM = 1
-SHOWR_HM = 0
+MIP_HM = TRACK_SHP
+SHOWR_HM = SHOWR_SHP
+MICHL_HM=MICHL_SHP
+
+LAM_MASS = 1115.683       # [MeV/c^2]
+
+LAM_PT_MAX = (np.sqrt((LAM_MASS**2 - (PION_MASS + PROT_MASS) ** 2) * (LAM_MASS**2 - (PION_MASS - PROT_MASS) ** 2))/2/LAM_MASS)
 
 
-Particle = spine.RecoParticle | spine.TruthParticle
-Interaction = spine.RecoInteraction | spine.TruthInteraction
-Met = spine.Meta
-Geo = Geometry(detector="2x2")
+# Particle = RecoParticle | TruthParticle
+Interaction = RecoInteraction | TruthInteraction
+
+Particle = TruthParticle|RecoParticle
+
+
+Model="2x2"
+
+if Model=="2x2":
+    HS_CODE="4::121"
+    DECAY_CODE="6::201"
+    HAR_CODE="4::151"
+
+if Model=="icarus":
+    HS_CODE="4::121"
+    DECAY_CODE="Decay"
+    HAR_CODE="4::151"
+
+
+Geo = Geometry(detector=Model)
+
+class ExtraChild:
+    child_id:int
+    dist_to_parent:float
+    proj_dist_to_parent:float
+    angle_to_parent:float
+    truth:bool
+    child:Particle
+    child_hm_pred: int
+
+    """
+    Storage class for extra children of any particle
+    Attributes
+    ----------
+    child_id : int
+        id for child
+    dist_to_parent: float
+        parent end to child start distance
+    proj_dist_to_parent: float
+        parent to child projected distance of closest approach
+    angle_to_parent: float
+        angle between child start direction and line from parent end to child start
+    truth: bool
+        is this a true child of the parent?
+    child: Particle
+        Particle object for the child
+    child_hm_pred: int
+        HM prediction for the child
+    parent: None|Particle
+        If the parent particle is specified, ignore the start point and use the point of closest approach from the parent (line) to the child (line)
+    """
+    def __init__(self, child:Particle,parent_end_pt:np.ndarray,hm_pred:list[int],parent:None|Particle=None):
+        self.child=child
+        self.child_id=child.id
+        
+        par_end=parent_end_pt
+        self.dist_to_parent=float(np.linalg.norm(child.start_point-par_end))
+        self.proj_dist_to_parent=np.nan
+        if parent!=None and not is_contained(parent.end_point,mode="module"):
+            # print(parent.end_dir,parent.reco_end_dir)
+            # par_end = get_pseudovertex(
+            #     start_points=np.array([parent.end_point, child.start_point], dtype=float),
+            #     directions=[parent.reco_end_dir, child.start_dir],
+            # )
+            self.proj_dist_to_parent=collision_distance(parent,child,orientation=["end","start"])[-1]
+
+        self.child_hm_pred=hm_pred[self.child_id]
+        if self.dist_to_parent==0:
+            self.angle_to_parent=0
+        else:
+            self.angle_to_parent=direction_acos((child.start_point-par_end)/self.dist_to_parent,child.start_dir)
+        self.truth=False
+        """
+        Initialize with all of the necessary particle attributes
+
+        Parameters
+        ----------
+        child : Particle
+            child particle
+        parent_end_pt: list[float]
+            end point of parent particle
+        hm_pred: list[int]
+            HM predictions for the particles
+        """
 
 
 class PotK:
@@ -49,8 +141,8 @@ class PotK:
     hip_len: float
         length attribute of the particle object
     dir_acos: float
-       arccos of the particle direction with the beam direction
-    HM_acc_K:float
+        arccos of the particle direction with the beam direction
+    k_hm_acc:float
         percent of the voxels of this particle
         whose Hip/Mip semantic segmentation matches the overall prediction
     """
@@ -58,37 +150,94 @@ class PotK:
     hip_id: int
     hip_len: float
     dir_acos: float
-    HM_acc_K: float
+    k_hm_acc: float
+    dist_from_hip: float
+    k_extra_children: list[ExtraChild]
+    pred_end: list[float]
+    truth: bool
+    hip: Particle
 
-    def __init__(self, hip_id, hip_len, dir_acos, HM_acc_K):
+    def __init__(self, kaon:Particle,hm_acc:float):
         """
         Initialize with all of the necessary particle attributes
 
         Parameters
         ----------
-        hip_id : int
-            id for hip associated to this class
-        hip_len: float
-            length attribute of the particle object
-        dir_acos: float
-            arccos of the particle direction with the beam direction
-        HM_acc_K:float
+        kaon : Particle
+            Kaon candidate particle object
+        hm_acc:float
             percent of the voxels of this particle whose Hip/Mip semantic segmentation matches the overall prediction
         """
-
-        self.hip_id = hip_id
-        self.hip_len = hip_len
-        self.dir_acos = dir_acos
-        self.HM_acc_K = HM_acc_K
-
-    def apply_cuts_K(self):
-        pass
-
-    # def output(self):
-    #     return [self.hip_id,self.hip_len,self.dir_acos]
+        self.hip_id = kaon.id
+        self.hip_len = kaon.reco_length
+        self.dir_acos = direction_acos(kaon.start_dir)
+        self.k_hm_acc = hm_acc
+        self.k_extra_children=[]
+        self.dist_from_hip=0
+        self.proj_dist_from_hip=0
+        self.truth=False
+        self.hip=kaon
 
 
-class PredK(PotK):
+class PotMich:
+    """
+    Storage class for primary Kaons with muon child and michel and their cut parameters
+
+    Attributes
+    ----------
+    mich_id : int
+        id for hip associated to this class
+    dist_to_mich: float
+        distance from mich start to mip end
+    mu_extra_children: list[ExtraChild]
+        extra children for the mip
+    HM_acc_mich:float
+        percent of the voxels of this particle whose Hip/Mip semantic segmentation matches the overall prediction
+    """
+
+    mich_id: int
+    dist_to_mich: float
+    proj_dist_to_mich:float
+    mu_extra_children: list[ExtraChild]
+    # decay_t_to_dist: float
+    mich_hm_acc: float
+    truth: bool
+    mich:Particle
+
+    def __init__(
+        self, mich:Particle, mich_hm_acc
+    ):
+        """
+        Initialize with all of the necessary particle attributes
+
+        Parameters
+        ----------
+        pred_K:PredK
+            PredK object with associated hip and mip information
+        mich_id : int
+            id for hip associated to this class
+        dist_to_mich: float
+            distance from mich start to mip end
+        mu_extra_children: list[ExtraChild]
+            extra children parameters as defined in 'children' function for the mip
+        HM_acc_mich:float
+            percent of the voxels of this particle whose Hip/Mip semantic segmentation
+            matches the overall prediction
+        """
+
+        self.mich_id = mich.id
+        self.dist_to_mich = 0
+        self.proj_dist_to_mich=0
+        self.mu_extra_children = []
+        self.mich_hm_acc = mich_hm_acc
+        self.truth=False
+        self.mich=mich
+
+        # self.decay_t=decay_t
+        # self.decay_sep=decay_sep
+
+
+class PredKaonMuMich:
     """
     Storage class for primary Kaons with muon child and their cut parameters
 
@@ -96,30 +245,47 @@ class PredK(PotK):
     ----------
     mip_id : int
         id for hip associated to this class
-    mip_len: float
+    mip_len_base: float
         length attribute of the particle object
-    dist_to_hip: float
-       distance from mip start to hip end
-    K_extra_children: list[float]
-        extra children parameters as defined in 'children' function
-    HM_acc_mu:float
+    mu_hm_acc:float
         percent of the voxels of this particle whose Hip/Mip semantic segmentation matches the overall prediction
+    potential_kaons: list[Particle]
+        list of kaon candidates corresponding to this mip candidate
+    potential_michels: list[Particle]
+        list of michel candidates corresponding to this mip candidate
+    truth: bool
+        is this a truth muon coming from a kaon
+    mip: Particle
+        muon candidate Particle object
+    require_kaon:
+        does this mip require a kaon candidate
+    require_michel:
+        does this mip require a michel candidate
     """
 
     mip_id: int
-    mip_len: float
-    dist_to_hip: float
-    K_extra_children: list[float]
-    HM_acc_mu: float
+    mip_len_base: float
+    mu_hm_acc: float
+    potential_kaons: list[PotK]
+    potential_michels: list[PotMich]
+    mu_extra_children:list[ExtraChild]
+    truth:bool
+    mip:Particle
+    require_kaon:bool
+    require_michel:bool #TODO implement this
+
+    true_signal:bool
 
     def __init__(
         self,
-        pot_k: PotK,
-        mip_id: int,
-        mip_len: float,
-        dist_to_hip: float,
-        K_extra_children: list[float],
-        HM_acc_mu,
+        # pot_k: PotK,
+        mip: Particle,
+        particles: list[Particle],
+        interactions: list[Interaction],
+        hm_acc:list[float],
+        hm_pred:list[int],
+        
+        assign_truth:bool
     ):
         """
         Initialize with all of the necessary particle attributes
@@ -134,96 +300,172 @@ class PredK(PotK):
             length attribute of the particle object
         dist_to_hip: float
             distance from mip start to hip end
-        K_extra_children: list[float]
-            extra children parameters as defined in 'children' function for the hip
         HM_acc_mu:float
             percent of the voxels of this particle whose Hip/Mip semantic segmentation matches the overall prediction
         """
-        self.hip_id = pot_k.hip_id
-        self.hip_len = pot_k.hip_len
-        self.dir_acos = pot_k.dir_acos
-        self.HM_acc_K = pot_k.HM_acc_K
 
-        self.mip_id = mip_id
-        self.mip_len = mip_len
-        self.dist_to_hip = dist_to_hip
-        self.K_extra_children = K_extra_children
-        self.HM_acc_mu = HM_acc_mu
+        self.mip_id = mip.id
+        self.mip_len_base=mip.reco_length
+        self.mu_hm_acc = hm_acc[mip.id]
+        self.potential_kaons=[]
+        self.potential_michels=[]
+        self.truth=False
+        self.mip=mip
+        self.true_signal=False
+        self.mu_extra_children=[]
+        if assign_truth:
+            assert type(mip)==TruthParticle and type(self.mip)==TruthParticle
+            if mip.pdg_code==-13:print("muon with parent",mip.parent_pdg_code,mip.creation_process)
+            self.true_signal=(mip.pdg_code==-13 and mip.parent_pdg_code==321 and mip.creation_process=='6::201' and float(mip.p)>230.)
+            if self.true_signal: print("found a signal kaon")
+            self.truth=(mip.pdg_code==-13 and mip.parent_pdg_code==321 and mip.creation_process=='6::201' and float(mip.p)>230. and is_contained(self.mip.end_position,mode="detector") and is_contained(self.mip.position,mode="detector")) #TODO particles[mip.parent_id].is_primary primary cut
+            # if self.truth: print(mip.reco_length,mip.p)
+            if self.truth:
+                for p in particles:
+                    assert type(p)==TruthParticle
+                    if p.creation_process in ['4::121','4::151'] and p.reco_length>5 and abs(p.pdg_code)!=321:
+                        if p.parent_id==mip.orig_id and direction_acos(mip.reco_end_dir,p.start_dir)>np.pi/12:
+                            self.truth=False
+                            break
+                        if p.parent_id==mip.parent_id:
+                            self.truth=False
+                            break
+                        # # if p.orig_id==mip.parent_id and np.linalg.norm(p.start_point-interactions[p.interaction_id].vertex)>5:
+                        # #     self.truth=False
+                        #     break
+        # if self.truth: print("found a kaon in truth")
+        self.require_kaon=(not self.mip.is_primary and bool(np.linalg.norm(self.mip.start_point-interactions[self.mip.interaction_id].vertex)>5))
+        # self.require_michel=(not is_contained(self.mip.end_point,mode="module"))
+        self.require_michel=False
 
-    def apply_cuts_mu(self):
-        pass
+        for p in particles:  
+            if hm_pred[p.id] in [SHOWR_HM,MIP_HM,HIP_HM]:
+                self.mu_extra_children+=[ExtraChild(p,self.mip.end_point,hm_pred,self.mip)]
+                
+        for hip_candidate in particles:
+            if not hip_candidate.is_primary and np.linalg.norm(hip_candidate.start_point-interactions[self.mip.interaction_id].vertex)>5:
+                continue #PRIMARY
+            if hm_pred[hip_candidate.id]!=HIP_HM:
+                continue #HIP
+            if hip_candidate.reco_length<5:
+                continue
+            self.potential_kaons+=[PotK(hip_candidate,hm_acc[hip_candidate.id])]
+            # if self.truth:print("got a true muon")
+            if assign_truth and self.truth:
+                assert type(hip_candidate)==TruthParticle and type(mip)==TruthParticle
+                print("got a true muon",abs(hip_candidate.pdg_code)==321,(hip_candidate.orig_id,[mip.parent_id,mip.ancestor_track_id]),hip_candidate.is_primary,bool(np.linalg.norm(hip_candidate.start_point-interactions[self.mip.interaction_id].vertex)<5))
+                self.potential_kaons[-1].truth= abs(hip_candidate.pdg_code)==321 and (hip_candidate.orig_id in [mip.parent_id,mip.ancestor_track_id]) and (hip_candidate.is_primary or bool(np.linalg.norm(hip_candidate.start_point-interactions[self.mip.interaction_id].vertex)<5))
+                if self.potential_kaons[-1].truth:
+                    print("WE GOT ONE")
+                    for p in particles:
+                        assert type(p)==TruthParticle
+                        if p.creation_process in ['4::121','4::151'] and p.parent_id==hip_candidate.orig_id and p.reco_length>5 and direction_acos(hip_candidate.reco_end_dir,p.start_dir)>np.pi/12:
+                            self.potential_kaons[-1].truth=False
+                            break
+            for p in particles:
+                
+                if p.id not in [mip.id,hip_candidate.id] and hm_pred[p.id] in [SHOWR_HM,MIP_HM,HIP_HM]:
+                    self.potential_kaons[-1].k_extra_children+=[ExtraChild(p,hip_candidate.end_point,hm_pred,hip_candidate)]
+                    if self.potential_kaons[-1].truth:
+                        assert type(p) == TruthParticle
+                        assert type(hip_candidate)==TruthParticle
+                        if p.parent_id==hip_candidate.orig_id:
+                            assert abs(p.parent_pdg_code)==321,abs(p.parent_pdg_code)
+                            self.potential_kaons[-1].k_extra_children[-1].truth=True
+            # hip_mip_pv=get_pseudovertex(start_points=np.array([hip_candidate.end_point, mip.start_point], dtype=float), directions=[hip_candidate.reco_end_dir, mip.start_dir])
+            # self.potential_kaons[-1].dist_from_hip=float(np.linalg.norm(hip_mip_pv-mip.start_point))
+        if assign_truth and self.require_kaon:
+            if not np.any([p.truth for p in self.potential_kaons]): self.truth=False
 
-    # def output(self):
-    #     return [self.hip_id,self.hip_len,self.dir_acos,self.mip_id,self.mip_len,self.dist_to_hip,self.K_extra_children]
+        for mich_candidate in particles:
+            if hm_pred[mich_candidate.id]!=MICHL_HM:
+                continue #HIP
+            self.potential_michels+=[PotMich(mich_candidate,hm_acc[mich_candidate.id])]
+            # self.potential_michels[-1].mu_extra_children=children(mip, particles, ignore=[mich_candidate.id])
+            for p in particles:
+                if p.id not in [mip.id,mich_candidate.id] and hm_pred[p.id] in [SHOWR_HM,MIP_HM,HIP_HM]:
+                    self.potential_michels[-1].mu_extra_children+=[ExtraChild(p,mip.end_point,hm_pred,mip)]
+                    # print("just a check",mip.end_point-mip.end_position)
+                    if self.potential_michels[-1].truth:
+                        assert type(mip)==TruthParticle and type(p)==TruthParticle
+                        if p.parent_id==mip.orig_id:
+                            assert abs(p.parent_pdg_code)==13,abs(p.parent_pdg_code)
+                            self.potential_michels[-1].mu_extra_children[-1].truth=True
+            # mich_mip_pv=get_pseudovertex(start_points=np.array([mich_candidate.start_point, mip.end_point], dtype=float), directions=[mich_candidate.start_dir, mip.reco_end_dir])
+            # self.potential_michels[-1].dist_to_mich=float(np.linalg.norm(mip.end_point-mich_mip_pv))
+            if assign_truth and self.truth:
+                assert type(mip)==TruthParticle and type(hip_candidate)==TruthParticle
+                self.potential_michels[-1].truth=abs(mich_candidate.pdg_code)==11 and hip_candidate.parent_id==mip.orig_id
+                if self.potential_michels[-1].truth:
+                    for p in particles:
+                        assert type(p)==TruthParticle
+                        if p.creation_process in ['4::121','4::151'] and p.parent_id==mip.orig_id and p.reco_length>5 and direction_acos(mip.reco_end_dir,p.start_dir)>np.pi/12:
+                            self.potential_michels[-1].truth=False
+                            break
+        # print("help me",mip.end_point,mip.start_point,mip.reco_end_dir, mip.reco_start_dir,mip.start_dir,mip.end_dir,mip.end_momentum,mip.ke,mip.reco_ke,[mip.csda_ke,mip.mcs_ke,mip.calo_ke])
+        if not is_contained(mip.start_point,mode='tpc',margin=2):
+            for hip in self.potential_kaons:
+                if not is_contained(mip.start_point,mode='tpc',margin=2):
+                    pseudovert=get_pseudovertex(start_points=np.array([hip.hip.end_point, mip.start_point], dtype=float), directions=[hip.hip.reco_end_dir, mip.start_dir])
+                    hip.dist_from_hip=float(np.linalg.norm(pseudovert-mip.start_point))
+                    hip.proj_dist_from_hip=collision_distance(hip.hip, mip,["end","start"])[-1]
+        # else: print("good start")
+        if not is_contained(mip.end_point,mode='tpc',margin=2):
+            for mich in self.potential_michels:
+                if not is_contained(mich.mich.start_point,mode='tpc',margin=2):
+                    pseudovert=get_pseudovertex(start_points=np.array([mip.end_point,mich.mich.start_point], dtype=float), directions=[mip.reco_end_dir, mich.mich.start_dir])
+                    mich.dist_to_mich=float(np.linalg.norm(pseudovert-mip.end_point))
+                    mich.proj_dist_to_mich=collision_distance(mip, mich.mich,["end","start"])[-1]
 
+        # else: print("good end")
+    def pass_cuts(self,cuts:dict)->bool:
+        passing_len=False
+        klens=[]
+        michlens=[]
+        passed=True
+        print("TRYING A KAON",self.truth)
 
-class PredK_Mich(PredK):
-    """
-    Storage class for primary Kaons with muon child and michel and their cut parameters
+        for k in self.potential_kaons:
+            if k.proj_dist_from_hip<cuts["par_child_dist_max"][0] and len([(p.dist_to_parent,p.angle_to_parent,p.proj_dist_to_parent) for p in k.k_extra_children if p.dist_to_parent<cuts["par_child_dist_max"][0] and (p.child_hm_pred in [SHOWR_HM,MICHL_HM] or p.child.reco_length>5)])==0:
+                klens+=[k.dist_from_hip]
+        for mich in self.potential_michels:
+            if mich.proj_dist_to_mich<cuts["par_child_dist_max"][0]:
+                michlens+=[mich.dist_to_mich]
+        
+        daughtercut=[(p.dist_to_parent,p.angle_to_parent,p.proj_dist_to_parent) for p in self.mu_extra_children if p.dist_to_parent<cuts["par_child_dist_max"][0] and ((direction_acos(p.child.start_dir,self.mip.reco_end_dir)>np.pi/12 and p.child_hm_pred==HIP_HM and p.child.reco_length>5 or (not is_contained(p.child.end_point,mode="detector") and p.child_hm_pred in [HIP_HM,MIP_HM])))]
+        if len(daughtercut)!=0:
+            if self.truth: print("muon daughter particle cut", daughtercut)
+            if passed :print("FAILED AT muon daughter cut",self.truth)
+            passed=False
 
-    Attributes
-    ----------
-    mich_id : int
-        id for hip associated to this class
-    dist_to_mich: float
-       distance from mich start to mip end
-    mu_extra_children: list[float]
-        extra children parameters as defined in 'children' function for the mip
-    HM_acc_mich:float
-        percent of the voxels of this particle whose Hip/Mip semantic segmentation matches the overall prediction
-    """
+        if cuts["require_kaon"] or self.require_kaon or not is_contained(self.mip.start_point,mode='module'):
+            if len(self.potential_kaons)==0: 
+                if self.truth: print("missing required kaon")
+                if passed:print("FAILED AT required kaon",self.truth)
+                passed=False
+        else:
+            klens+=[0]
 
-    mich_id: int
-    dist_to_mich: float
-    mu_extra_children: list[float]
-    # decay_t_to_dist: float
-    HM_acc_mich: float
+        if cuts["require_michel"] or self.require_michel:
+            if len(self.potential_michels)==0: 
+                if self.truth: print("missing required michel")
+                if passed:print("FAILED AT required michel",self.truth)
+                passed=False
+        else:
+            michlens+=[0]
 
-    def __init__(
-        self, pred_k: PredK, mich_id, dist_to_mich, mu_extra_children, HM_acc_mich
-    ):
-        """
-        Initialize with all of the necessary particle attributes
-
-        Parameters
-        ----------
-        pred_K:PredK
-            PredK object with associated hip and mip information
-        mich_id : int
-            id for hip associated to this class
-        dist_to_mich: float
-        distance from mich start to mip end
-        mu_extra_children: list[float]
-            extra children parameters as defined in 'children' function for the mip
-        HM_acc_mich:float
-            percent of the voxels of this particle whose Hip/Mip semantic segmentation
-            matches the overall prediction
-        """
-
-        self.hip_id = pred_k.hip_id
-        self.hip_len = pred_k.hip_len
-        self.dir_acos = pred_k.dir_acos
-        self.HM_acc_K = pred_k.HM_acc_K
-
-        self.mip_id = pred_k.mip_id
-        self.mip_len = pred_k.mip_len
-        self.dist_to_hip = pred_k.dist_to_hip
-        self.K_extra_children = pred_k.K_extra_children
-        self.HM_acc_mu = pred_k.HM_acc_mu
-
-        self.mich_id = mich_id
-        self.dist_to_mich = dist_to_mich
-        self.mu_extra_children = mu_extra_children
-        self.HM_acc_mich = HM_acc_mich
-
-        # self.decay_t=decay_t
-        # self.decay_sep=decay_sep
-
-    def apply_cuts_mich(self):
-        pass
-
-    # def output(self):
-    #     return [self.hip_id,self.hip_len,self.dir_acos,self.mip_id,self.mip_len,self.dist_to_hip,self.K_extra_children,self.mich_id,self.dist_to_mich,self.mu_extra_children]
+        for k in klens:
+            for mich in michlens:
+                estlen=self.mip_len_base+k+mich
+                if cuts["mu_length"][0]<estlen and estlen<cuts["mu_length"][1]:
+                    passing_len=True
+                    break
+            if passing_len: break
+        if not passing_len:
+            if self.truth:print("no passing length",klens,michlens,self.mip_len_base)
+            if passed:print("FAILED AT passing length",self.truth)
+            passed=False
+        return passed #TODO more cuts
 
 
 class Pred_L:
@@ -240,7 +482,7 @@ class Pred_L:
         length attribute of the hip object
     mip_len: float
         length attribute of the mip object
-    VAE: float
+    vae: float
         angle between the line constructed from the momenta of the hip and mip and
         the line constructed from the interaction vertex and the lambda decay point
     lam_mass2:float
@@ -254,116 +496,226 @@ class Pred_L:
         point along the vector start direction which is the point of
         closest approach to the other particle's corresponding line for the hip (t1) and mip (t2)
         along with the distance of closest approach of these lines (dist)
-    dir_acos_L:float
+    lam_dir_acos:float
         arccos of the Lambda direction with the beam direction
-    HM_acc_prot:float
-        percent of the voxels for the hip whose
-        Hip/Mip semantic segmentation matches the overall prediction
-    HM_acc_pi:float
-        percent of the voxels for the mip whose
-        Hip/Mip semantic segmentation matches the overall prediction
-    prot_extra_children:list[float]
-        extra children parameters as defined in 'lambda_children' function for the Lambda
-    Pi_extra_children:list[float]
-        extra children parameters as defined in 'children' function for the mip
-    lam_extra_children:list[float]
-        extra children parameters as defined in 'children' function for the hip
+    prot_hm_acc:float
+        percent of the voxels for the hip whose Hip/Mip semantic segmentation matches the overall prediction
+    pi_hm_acc:float
+        percent of the voxels for the mip whose Hip/Mip semantic segmentation matches the overall prediction
+    prot_extra_children: list[ExtraChild]
+        extra children for the Lambda
+    pi_extra_children: list[ExtraChild]
+        extra children for the mip
+    lam_extra_children: list[ExtraChild]
+        extra children for the hip
+    mip: Particle
+        candidate pion
+    hip: Particle
+        candidate proton
     """
 
     hip_id: int
     mip_id: int
     hip_len: float
     mip_len: float
-    VAE: float
+    vae: float
     lam_mass2: float
     lam_decay_len: float
     momenta: list[float]
     coll_dist: list[float]
-    dir_acos_L: float
-    HM_acc_prot: float
-    HM_acc_pi: float
-    prot_extra_children: list[float]
-    Pi_extra_children: list[float]
-    lam_extra_children: list[float]
+    lam_dir_acos: float
+    prot_hm_acc: float
+    pi_hm_acc: float
+    prot_extra_children: list[ExtraChild]
+    pi_extra_children: list[ExtraChild]
+    lam_extra_children: list[ExtraChild]
+    truth:bool
+    mip: Particle
+    hip: Particle
 
     def __init__(
         self,
-        hip_id,
-        mip_id,
-        hip_len,
-        mip_len,
-        VAE,
-        lam_mass2,
-        lam_decay_len,
-        momenta: list[float],
-        coll_dist,
-        lam_extra_children,
-        prot_extra_children,
-        Pi_extra_children,
-        dir_acos_L,
-        HM_acc_prot,
-        HM_acc_pi,
+        hip:Particle,
+        mip:Particle,
+        particles:list[Particle],
+        interactions: list[Interaction],
+        hm_acc:list[float],
+        hm_pred:list[int],
+        # hip_id,
+        # mip_id,
+        # hip_len,
+        # mip_len,
+        # vae,
+        # lam_mass2,
+        # lam_decay_len,
+        # momenta: list[float],
+        # coll_dist,
+        # lam_extra_children,
+        # prot_extra_children,
+        # pi_extra_children,
+        # lam_dir_acos,
+        # prot_hm_acc,
+        # pi_hm_acc,
+        assign_truth:bool
     ):
         """
         Initialize with all of the necessary particle attributes
 
         Parameters
         ----------
-        hip_id: int
-            id for hip child
-        mip_id: int
-            id for mip child
-        hip_len: float
-            length attribute of the hip object
-        mip_len: float
-            length attribute of the mip object
-        VAE: float
-            angle between the line constructed from the momenta of the hip and mip and
-            the line constructed from the interaction vertex and the lambda decay point
-        lam_mass2:float
-            reconstructed mass squared of the Lambda
-        lam_decay_len: float
-            decay length of the lambda from the associated vertex
-        momenta: list[float]
-            shape(4) [hip transverse momentum, mip transverse momentum,hip long momentum, mip long momentum]
-        coll_dist: list[float]
-            shape(3) [t1,t2, dist]: the distance from the start pointto the point along the vector start direction
-            which is the point of closest approach to the other particle's corresponding line for the hip (t1) and mip (t2)
-            along with the distance of closest approach of these lines (dist)
-        dir_acos_L:float
-            arccos of the Lambda direction with the beam direction
-        HM_acc_prot:float
-            percent of the voxels for the hip whose Hip/Mip semantic segmentation matches the overall prediction
-        HM_acc_pi:float
-            percent of the voxels for the mip whose Hip/Mip semantic segmentation matches the overall prediction
-        prot_extra_children:list[float]
-            extra children parameters as defined in 'lambda_children' function for the Lambda
-        Pi_extra_children:list[float]
-            extra children parameters as defined in 'children' function for the mip
-        lam_extra_children:list[float]
-            extra children parameters as defined in 'children' function for the hip
+        hip: Particle
+            hip particle object
+        mip: Particle
+            mip particle object
+        particles: list[Particle]
+            list of particle objects for the event
+        interactions: list[Interaction]
+            list of interactions for the event
+        hm_acc: list[float]
+            hip mip semantic segmentation accuracy for each particle
+        hm_pred: list[int]
+            hip mip semantic segmentation prediction for each particle
+        assign_truth:bool
+            assign truth labels to true lambdas or not
         """
-        self.hip_id = hip_id
-        self.mip_id = mip_id
-        self.hip_len = hip_len
-        self.mip_len = mip_len
-        self.VAE = VAE
-        self.lam_mass2 = lam_mass2
-        self.lam_decay_len = lam_decay_len
-        self.momenta: list[float] = momenta
-        self.coll_dist = coll_dist
-        self.lam_extra_children = lam_extra_children
-        self.prot_extra_children = prot_extra_children
-        self.Pi_extra_children = Pi_extra_children
-        self.dir_acos_L = dir_acos_L
-        self.HM_acc_prot = HM_acc_prot
-        self.HM_acc_pi = HM_acc_pi
 
-    def apply_cuts_K(self):
-        pass
+        assert hm_pred[hip.id]==HIP_HM
+        assert hm_pred[mip.id]==MIP_HM
+        self.hip_id = hip.id
+        self.mip_id = mip.id
+        self.hip_len =hip.reco_length
+        self.mip_len = mip.reco_length
+        self.vae = vertex_angle_error(mip,hip,interactions)
+        self.lam_mass2 = lambda_mass_2(hip,mip)
+        self.lam_decay_len = lambda_decay_len(hip,mip,interactions)
+        self.momenta: list[float] = momenta_projections(hip,mip,interactions)
+        self.coll_dist = collision_distance(hip,mip)
+        self.lam_dir_acos = direction_acos((hip.momentum+mip.momentum)/np.linalg.norm(hip.momentum+mip.momentum))
+        self.prot_hm_acc = hm_acc[hip.id]
+        self.pi_hm_acc = hm_acc[mip.id]
+        self.mip=mip
+        self.hip=hip
+        self.truth=False
+        if assign_truth:
+            assert type(self.mip)==TruthParticle and type(self.hip)==TruthParticle
+            self.true_signal=abs(self.mip.parent_pdg_code)==3122 and abs(self.hip.pdg_code)==2212 and abs(self.mip.pdg_code)==211 and self.mip.parent_id==self.hip.parent_id and self.hip.creation_process=='6::201' and self.mip.creation_process=='6::201'
+            self.truth=self.is_truth(particles)
+        if self.truth: print("We got a true lambda")
+        # self.lam_extra_children = lambda_children(hip,mip,[p for p in particles if hm_pred[p.id] in [SHOWR_HM,MIP_HM,HIP_HM]])
 
-    # def output(self):
-    #     return [self.hip_id,self.mip_id,self.VAE,self.lam_mass2,self.lam_decay_len,self.momenta,self.coll_dist,self.extra_children]
+        guess_start = get_pseudovertex(
+            start_points=np.array([hip.start_point, mip.start_point], dtype=float),
+            directions=[hip.start_dir, mip.start_dir],
+        )
+        self.pi_extra_children=[]
+        self.prot_extra_children=[]
+        self.lam_extra_children=[]
+        for p in particles:
+            if p.id not in [mip.id,hip.id] and hm_pred[p.id] in [SHOWR_HM,MIP_HM,HIP_HM,MICHL_HM]:
+                self.prot_extra_children +=[ExtraChild(p,hip.end_point,hm_pred,hip)]
+                self.pi_extra_children +=[ExtraChild(p,mip.end_point,hm_pred,mip)]
+                self.lam_extra_children += [ExtraChild(p, guess_start,hm_pred)]
+                if self.truth:
+                    assert type(p)==TruthParticle and type(mip)==TruthParticle and type(hip)==TruthParticle
+                    if p.parent_id==hip.orig_id:
+                        # if abs(p.parent_pdg_code)!=2212:
+                        #     print("2212 WARNING I HAVE NO IDEA WHAT IS GOING ON",abs(p.parent_pdg_code)-2212,p.id,p.orig_id,p.parent_id,p.parent_id)
+                        self.prot_extra_children[-1].truth=True
+                    if p.parent_id==mip.orig_id:
+                        # if abs(p.parent_pdg_code)!=211:
+                        #     print("211 WARNING I HAVE NO IDEA WHAT IS GOING ON",abs(p.parent_pdg_code),p.id,p.orig_id,p.parent_id,p.parent_id)
+                        self.pi_extra_children[-1].truth=True
+                    if p.parent_id==hip.parent_id:
+                        assert p.parent_id==mip.parent_id
+                        assert set([abs(p.parent_pdg_code),abs(hip.parent_pdg_code),abs(mip.parent_pdg_code)]) == {3122},(p.parent_pdg_code,hip.parent_pdg_code,mip.parent_pdg_code,p.parent_id,hip.parent_id,mip.parent_id,p.pdg_code,hip.pdg_code,mip.pdg_code)
+                        self.lam_extra_children[-1].truth=True
+
+    def is_truth(self,particles:list[Particle]):
+        assert type(self.mip)==TruthParticle and type(self.hip)==TruthParticle
+        if abs(self.mip.parent_pdg_code)!=3122:
+            return False
+        if self.lam_decay_len<5:
+            return False
+        if abs(self.hip.pdg_code)!=2212:
+            return False
+        if abs(self.mip.pdg_code)!=211:
+            return False
+        if self.hip.creation_process!='6::201' or self.mip.creation_process!='6::201':
+            return False
+        if self.mip.parent_id!=self.hip.parent_id:
+            return False
+        if not is_contained(self.hip.end_point,mode="module",margin=2) or not is_contained(self.mip.end_point,mode="module",margin=2):
+            return False
+        for p in particles:
+            assert type(p)==TruthParticle
+            if p.creation_process in ['4::121','4::151'] and p.parent_id==self.hip.orig_id and ((p.reco_length>5 and direction_acos(p.start_dir,self.hip.reco_end_dir)>np.pi/12) or (not is_contained(p.end_point,mode="detector") and abs(p.pdg_code) not in  [11,22])):
+                return False
+            if p.creation_process in ['4::121','4::151'] and p.parent_id==self.mip.orig_id and ((p.reco_length>5 and direction_acos(p.start_dir,self.mip.reco_end_dir)>np.pi/12) or (not is_contained(p.end_point,mode="detector") and abs(p.pdg_code) not in  [11,22])):
+                return False
+            if p.creation_process in ['4::121','4::151'] and p.parent_id==self.mip.parent_id and p.reco_length>5:
+                return False
+            # if p.creation_process in ['6::201'] and p.pdg_code==13 and p.parent_id==self.mip.orig_id and p.reco_length>15: #didn't decay at rest #TODO need to deal with pi to mu decay in flight with colinear.
+            #     return False
+
+        return True
+    
+    def pass_cuts(self,cuts:dict)->bool:
+        passed=True
+        print("TRYING a lambda",self.truth)
+        if is_contained(self.hip.start_point,mode="module",margin=2) and is_contained(self.mip.start_point,mode="module",margin=2) and np.linalg.norm(self.mip.start_point-self.hip.start_point)>cuts["lam_cont_dist_max"]:
+            if self.truth: print("lam daughter contained start distance max cut", np.linalg.norm(self.mip.start_point-self.hip.start_point))
+            if passed:print("FAILED AT lam daughter cont dist cut",self.truth)
+            passed=False
+
+        if self.coll_dist[-1]>cuts["lam_proj_dist_max"]:
+            if self.truth: print("lam_proj_dist_max cut", self.coll_dist[-1])
+            if passed: print("FAILED AT lam_proj_dist_max cut",self.truth)
+            passed=False
+        if not is_contained(self.hip.end_point,mode="module",margin=2) or not is_contained(self.mip.end_point,mode="module",margin=2):
+            if self.truth: print("prot/pi containment cut")
+            if passed :print("FAILED AT pi/prot containment cut",self.truth)
+            passed=False
+
+        # if self.vae>cuts["lam_VAE_max"]:
+        #     if self.truth: print("VAE max cut", self.vae)
+        #     return False
+        
+        
+        # print([(p.dist_to_parent,p.angle_to_parent) for p in self.prot_extra_children if p.dist_to_parent<cuts["par_child_dist_max"][0]])
+        daughtercut=[(p.dist_to_parent,p.angle_to_parent,p.proj_dist_to_parent,p.child.id) for p in self.prot_extra_children if p.dist_to_parent<cuts["par_child_dist_max"][0] and direction_acos(p.child.start_dir,self.hip.reco_end_dir)>np.pi/12 and (p.child.reco_length>5 or (not is_contained(p.child.end_point,mode="detector") and p.child_hm_pred in [HIP_HM,MIP_HM]))]
+        if len(daughtercut)!=0:
+            if self.truth: print("proton daughter particle cut", daughtercut)
+            if passed :print("FAILED AT proton daughter cut",self.truth)
+            passed=False
+        
+        daughtercut=[(p.dist_to_parent,p.angle_to_parent,p.proj_dist_to_parent,p.child.id) for p in self.pi_extra_children if p.dist_to_parent<cuts["par_child_dist_max"][0] and ((p.child_hm_pred==MIP_HM and p.child.reco_length>5 and direction_acos(p.child.start_dir,self.mip.reco_end_dir)>np.pi/6) or (p.child_hm_pred==HIP_HM and p.child.reco_length>5) or (not is_contained(p.child.end_point,mode="detector") and p.child_hm_pred in [HIP_HM,MIP_HM]))]#or p.child_hm_pred in [SHOWR_HM,MICHL_HM]
+        # daughtercut2=[(p.dist_to_parent,p.angle_to_parent,p.proj_dist_to_parent,p.child.reco_length) for p in self.pi_extra_children if p.dist_to_parent<cuts["par_child_dist_max"][0] and ((direction_acos(p.child.start_dir,self.mip.reco_end_dir)>np.pi/12 and p.child_hm_pred==MIP_HM and p.child.reco_length>5))]#or p.child_hm_pred in [SHOWR_HM,MICHL_HM]
+        if len(daughtercut)!=0:
+            # if len(daughtercut2)>0:print("dcut2",daughtercut2)
+            if self.truth: print("pion daughter particle cut", daughtercut)
+            if passed :print("FAILED AT pion daughter cut",self.truth)
+            passed=False
+
+        if self.lam_decay_len<cuts["lam_decay_len"]:
+            if self.truth: print("decay length cut")
+            if passed :print("FAILED AT decay length cut",self.truth)
+            passed=False
+
+        # if self.momenta[0]>cuts["lam_pt_max"]*LAM_PT_MAX:
+        #     if self.truth: print("pt max cut", self.momenta[0])
+        #     if passed:print("FAILED AT lam_pt_max",self.truth)
+        #     passed=False
+        
+
+        
+        # masscut=abs((self.lam_mass2-PION_MASS**2-PROT_MASS**2)/(LAM_MASS**2-PION_MASS**2-PROT_MASS**2)-1)
+        # if masscut>cuts["lam_percent_error_mass"]:
+        #     if self.truth: print("mass cut", masscut)
+        #     if passed:print("FAILED AT mass cut",self.truth,masscut)
+        #     passed=False
+        # # return True
+
+        return passed
 
 
 def is_contained(pos: np.ndarray, mode: str, margin: float = 3) -> bool:
@@ -384,9 +736,6 @@ def is_contained(pos: np.ndarray, mode: str, margin: float = 3) -> bool:
     """
     Geo.define_containment_volumes(margin, mode=mode)
     return bool(Geo.check_containment(pos))
-
-
-# TODO is contained unit test a million points each
 
 
 def HIPMIP_pred(particle: Particle, sparse3d_pcluster_semantics_HM: np.ndarray) -> int:
@@ -415,7 +764,7 @@ def HIPMIP_pred(particle: Particle, sparse3d_pcluster_semantics_HM: np.ndarray) 
     return st.mode(HM_Pred).mode
 
 
-def HM_score(particle: Particle, sparse3d_pcluster_semantics_HM: np.ndarray) -> float:
+def HIPMIP_acc(particle: Particle, sparse3d_pcluster_semantics_HM: np.ndarray) -> float:
     """
     Returns the fraction of voxels for a particle whose HM semantic segmentation prediction agrees
     with that of the particle itself as decided by HIPMIP_pred
@@ -456,11 +805,13 @@ def direction_acos(momenta: np.ndarray, direction=np.array([0.0, 0.0, 1.0])) -> 
     float
         Angle between particle direction and beam
     """
+    assert np.isclose(np.linalg.norm(momenta),1),np.linalg.norm(momenta)
+    assert np.isclose(np.linalg.norm(direction),1),np.linalg.norm(direction)
 
     return np.arccos(np.dot(momenta, direction))
 
 
-def collision_distance(particle1: Particle, particle2: Particle):
+def collision_distance(particle1: Particle, particle2: Particle,orientation:list[str]=["start","start"]):
     """
     Returns for each particle, the distance from the start point to the point along the vector start direction
     which is the point of closest approach to the other particle's corresponding line, along with the distance of closest approach.
@@ -479,11 +830,26 @@ def collision_distance(particle1: Particle, particle2: Particle):
     [float,float,float]
         [t1,t2, min_{t1,t2}(||p1+v1*t1-p2-v2*t2||^2)]
     """
-    v1 = particle1.start_dir
-    v2 = particle2.start_dir
+    assert set(orientation).issubset(set(["start","end"]))
 
-    p1 = particle1.start_point
-    p2 = particle2.start_point
+    if orientation[0]=="start":
+        v1 = particle1.start_dir
+        p1 = particle1.start_point
+    elif orientation[0]=="end":
+        v1 = particle1.reco_end_dir
+        p1 = particle1.end_point
+    else:
+        raise Exception()
+
+    if orientation[1]=="start":
+        v2 = particle2.start_dir
+        p2 = particle2.start_point
+    elif orientation[1]=="end":
+        v2 = particle2.reco_end_dir
+        p2 = particle2.end_point
+    else:
+        raise Exception()
+    
 
     v11 = np.dot(v1, v1)
     v22 = np.dot(v2, v2)
@@ -501,139 +867,6 @@ def collision_distance(particle1: Particle, particle2: Particle):
     min_dist = np.dot(p1 + v1 * t1 - p2 - v2 * t2, p1 + v1 * t1 - p2 - v2 * t2)
 
     return [t1, t2, min_dist]
-
-
-def dist_end_start(
-    particle: Particle, parent_candidates: list[Particle]
-) -> list[list[float]]:
-    """
-    Returns distance between the start of child particle and the end
-    of every parent candidate supplied, along with the parent candidate identified.
-
-    Parameters
-    ----------
-    particle : spine.Particle
-        Particle object
-    parent_candidates: List(spine.Particle)
-        List of spine particle objects corresponding to potential parents of particle
-
-    Returns
-    -------
-    [list[float,float]]
-        Distance from parent end to child start and corresponding entry in parent candidate list
-
-    """
-    out = []
-    for n in range(len(parent_candidates)):
-        out += [
-            [
-                float(
-                    np.linalg.norm(
-                        parent_candidates[n].end_point - particle.start_point
-                    )
-                ),
-                n,
-            ]
-        ]
-    return out
-
-
-def is_child_eps_angle(parent_end: np.ndarray, child: Particle) -> tuple[float, float]:
-    """
-    Returns separation from parent particle end to child particle start and
-    angle between child start direction and direction from parent end to child start
-
-    Parameters
-    ----------
-    parent_end : np.ndarray(3)
-        parent end location
-    child: spine.Particle
-        Particle object
-
-    Returns
-    -------
-        [float,float,bool]
-            distance from child start to parent end, angle between child start direction and direction from parent end to child start
-    """
-    true_dir = child.start_point - parent_end
-    separation = float(np.linalg.norm(true_dir))
-    if separation == 0:
-        angle = 0
-    else:
-        angle = np.arccos(np.dot(true_dir, child.start_dir) / separation)
-    return (separation, angle)
-
-
-def children(
-    parent: Particle, particle_list: list[Particle], ignore: list[int]
-) -> list[float]:
-    """
-    Returns children candidates
-
-    Parameters
-    ----------
-    parent : spine.Particle
-        parent particle
-    particle_list: List(spine.Particle)
-        List of spine particle objects
-    ignore: List(int)
-        list of particle ids to ignore
-
-    Returns
-    -------
-        [float,float]:
-            minimum distance and angle as defined in 'is_child_eps_angle' between a parent and any potential child other than the particles in ignore
-    """
-    children = [np.inf, np.inf]
-    for p in particle_list:
-        if p.id in ignore:
-            continue
-        is_child = is_child_eps_angle(parent.end_point, p)
-        children[0] = min(children[0], is_child[0])
-        children[1] = min(children[1], is_child[1])
-    return children
-
-
-def lambda_children(
-    hip: Particle, mip: Particle, particle_list: list[Particle]
-) -> list[float]:
-    """
-    Returns children candidates for lambda particle
-
-    Parameters
-    ----------
-    hip: spine.Particle
-        spine particle object
-    mip: spine.Particle
-        spine particle object
-    particle_list: List(spine.Particle)
-        List of spine particle objects
-    max_dist: float
-        max dist from child start to parent end
-    max_angle: float
-        max angle between line pointing from parent end to child start and child initial direction
-    min_dist: float
-        if child start closer than this from parent end, return True
-
-    Returns
-    -------
-        [float,float]:
-            minimum distance and angle as defined in 'is_child_eps_angle' between the potential lambda and any potential child other than the hip and mip
-    """
-    children = []
-    guess_start = get_pseudovertex(
-        start_points=np.array([hip.start_point, mip.start_point], dtype=float),
-        directions=[hip.start_dir, mip.start_dir],
-    )
-    children = [np.inf, np.inf]
-    for p in particle_list:
-        if p.id in (hip.id, mip.id):
-            continue
-        is_child = is_child_eps_angle(guess_start, p)
-        children[0] = min(children[0], is_child[0])
-        children[1] = min(children[1], is_child[1])
-    return children
-
 
 def lambda_decay_len(
     hip: Particle, mip: Particle, interactions: list[Interaction]
@@ -783,17 +1016,24 @@ def lambda_mass_2(hip: Particle, mip: Particle) -> float:
     assert (
         hip.ke > 0
     )  # print(hip.ke,"very bad",hip.id,hip.parent_pdg_code,hip.pid,hip.pdg_code,hip.energy_init)
+    if type(hip)==RecoParticle:
+        lam_mass2 = (
+            PROT_MASS**2
+            + PION_MASS**2
+            + 2 * (mip.ke + PION_MASS) * (hip.ke + PROT_MASS)
+            - 2 * np.dot(hip.momentum, mip.momentum)
+        )
+    elif type(hip)==TruthParticle:
+        lam_mass2 = (
+            PROT_MASS**2
+            + PION_MASS**2
+            + 2 * (mip.reco_ke + PION_MASS) * (hip.reco_ke + PROT_MASS)
+            - 2 * np.dot(hip.reco_momentum, mip.reco_momentum)
+        )
 
-    lam_mass2 = (
-        PROT_MASS**2
-        + PION_MASS**2
-        + 2 * (mip.ke + PION_MASS) * (hip.ke + PROT_MASS)
-        - 2 * np.dot(hip.momentum, mip.momentum)
-    )
-
-    # if lam_mass2<0 or lam_mass2>2*1115.6**2: print(lam_mass2,hip.parent_track_id,mip.parent_track_id,hip.parent_pdg_code,mip.ke,hip.ke,np.dot(hip.momentum,mip.momentum),[hip.pdg_code,hip.id,hip.creation_process],[mip.pdg_code,mip.id,mip.creation_process])
+    # if lam_mass2<0 or lam_mass2>2*1115.6**2: print(lam_mass2,hip.parent_id,mip.parent_id,hip.parent_pdg_code,mip.ke,hip.ke,np.dot(hip.momentum,mip.momentum),[hip.pdg_code,hip.id,hip.creation_process],[mip.pdg_code,mip.id,mip.creation_process])
     return lam_mass2
-
+# TODO enforce primary kaon/mu
 
 def vertex_angle_error(
     hip: Particle, mip: Particle, interactions: list[Interaction]
@@ -832,52 +1072,9 @@ def vertex_angle_error(
     assert ret == ret
     return ret
 
-
-# def true_k_with_mu(particle_list):
-#     '''
-#     Returns track_ids for kaons which are contained
-#     and which only have a muon which is both contained and full range
-
-#     Parameters
-#     ----------
-#     particle_list: List(spine.Particle)
-#         List of spine particle objects
-
-#     Returns
-#     -------
-#     List
-#         Shape (n) track ids for true kaons satisfying cuts
-#     '''
-#     K_pdgs={}
-#     for p in range(particle_list):
-#         if p.parent_pdg_code==321 and ((p.is_contained and abs(p.pdg)==13) or p.processid=="4::121"):
-#             if p.parent_id not in K_pdgs: K_pdgs[p.parent_id]=[]
-#             K_pdgs[p.parent_id].append(abs(p.pdg)*(p.processid!="4::121"))
-#     for i in list(K_pdgs.keys()):
-#         if set(K_pdgs[i])!=set([13]):
-#             K_pdgs.pop(i)
-#     return list(K_pdgs.keys())
-
-# def true_lambda(particle_list):
-#     '''
-#     Returns track_ids for true p/pi pairs which are both contained and full range
-
-#     Parameters
-#     ----------
-#     particle_list: List(spine.Particle)
-#         List of spine particle objects
-
-#     Returns
-#     -------
-#     List([int,int])
-#         List of contained pion/proton pairs which originate from true lambdas
-#     '''
-#     lambda_pdgs={}
-#     for p in range(particle_list):
-#         if p.parent_pdg_code==3122 and ((p.is_contained and abs(p.pdg) in [2212,211]) or p.processid=="4::121"):
-#             if p.parent_id not in lambda_pdgs: lambda_pdgs[p.parent_id]=[]
-#             lambda_pdgs[p.parent_id].append(abs(p.pdg)*(p.processid!="4::121"))
-#     for i in list(lambda_pdgs.keys()):
-#         if set(lambda_pdgs[i])!=set([2212,211]):
-#             lambda_pdgs.pop(i)
-#     return list(lambda_pdgs.keys())
+def come_to_rest(p:Particle,percent_error=.2)->bool:
+    if not is_contained(p.end_point,mode="detector"):return False
+    if not p.csda_ke>0: return False
+    if (not p.calo_ke>0) and (not p.mcs_ke>0): return False
+    check=p.mcs_ke if p.mcs_ke>0 else p.calo_ke
+    return abs(check/p.csda_ke-1)<percent_error

@@ -169,3 +169,15 @@ plots/*
 *.npy
 edep-sim_testing/*
 *.csv
+*.html
+node_modules/*
+*.js
+*https*
+*plot*
+event_displays/*
+zach/*
+*.pptx
+*.ini
+*.hdf5
+*.npz
+arxiv/*
