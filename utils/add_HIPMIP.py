@@ -120,7 +120,7 @@ if __name__ == "__main__":
             for k in range(len(voxelmap.as_vector()[j])):
                 id=voxelmap.as_vector()[j].as_vector()[k].id()
                 # print(semanticsdict[id],id, semantics_HM.as_vector()[semanticsdict[id]].value())
-                semantics_HM.as_vector()[semanticsdict[id]].set(id,5)
+                semantics_HM.as_vector()[semanticsdict[id]].set(id,7)
                 # raise Exception(semantics_HM.as_vector()[semanticsdict[id]].id(),semantics_HM.as_vector()[semanticsdict[id]].value())
         io_out.save_entry()
     io_out.finalize()

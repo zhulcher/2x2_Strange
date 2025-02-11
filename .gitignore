@@ -181,3 +181,6 @@ zach/*
 *.hdf5
 *.npz
 arxiv/*
+error/*
+output/*
+nohup.out
