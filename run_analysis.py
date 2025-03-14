@@ -31,6 +31,10 @@ else:
 K_MIN_KE=40
 LAM_MIN_KE=50
 
+margin0=[[15,15],[15,15],[10,60]]
+
+from collections import Counter
+
 
 def main(HMh5,analysish5,mode:bool=True,outfile=''):
 
@@ -55,6 +59,8 @@ def main(HMh5,analysish5,mode:bool=True,outfile=''):
     predicted_K_mu_mich:dict[int,list[PredKaonMuMich]]={}
     predicted_L:dict[int,list[Pred_L]]={}
     num_nu=0
+    nu_type_K=[]
+    nu_type_L=[]
 
     print("starting")
     # process_codes=[]
@@ -97,20 +103,37 @@ def main(HMh5,analysish5,mode:bool=True,outfile=''):
                 if inter.nu_id!=-1 and inter.is_contained:
                     num_nu+=1
 
-        
+        # print("starting kaons")
         for hip_candidate in particles:
             # if interactions[mip_candidate.interaction_id].nu_id==-1:continue
 
-            Truth=False
+            # Truth=False
+            Truth_K=False
+            truth_list=[]
+            reason=""
             if mode:
-                Truth=hip_candidate.is_primary*hip_candidate.ke>K_MIN_KE*is_contained(hip_candidate.points,mode=full_containment)*is_contained(interactions[hip_candidate.interaction_id].vertex,mode=full_containment)
+                assert type(hip_candidate)==TruthParticle
+                truth_list=np.array([hip_candidate.is_primary , # or np.isclose(np.linalg.norm(hip_candidate.position-hip_candidate.ancestor_position),0) #0 or (abs(hip_candidate.parent_pdg_code)==321 and process_map[hip_candidate.ancestor_creation_process]=='primary')
+                        hip_candidate.ke>K_MIN_KE, #1
+                        # is_contained(hip_candidate.points,mode=full_containment), #2
+                        is_contained(interactions[hip_candidate.interaction_id].vertex,mode=full_containment,margin=margin0),
+                        hip_candidate.pdg_code==321, #4), #3 
+                        # all_daughters_contained(hip_candidate.ancestor_track_id,particles) #5
+                        ])
             # pass_prelims=True
-            pass_prelims=is_contained(interactions[hip_candidate.interaction_id].vertex,mode=full_containment)*is_contained(hip_candidate.points,mode=full_containment)*hip_candidate.reco_length>min_len
-            if mode:
-                pass_prelims*=HM_pred[hip_candidate.id]==HIP_HM
-            
-            if not (Truth or pass_prelims):continue
+                Truth_K=np.all(truth_list)
+                if Truth_K:
+                    myint=interactions[hip_candidate.interaction_id]
+                    nu_type_K+=[(myint.current_type,myint.lepton_pdg_code,myint.interaction_type,myint.interaction_mode)]
+                if not Truth_K:
+                    reason=str((np.argwhere(truth_list==False))[0][0])
 
+            pass_prelims=is_contained(interactions[hip_candidate.interaction_id].reco_vertex,mode=full_containment,margin=margin0)
+            # pass_prelims=is_contained(interactions[hip_candidate.interaction_id].vertex,mode=full_containment)*is_contained(hip_candidate.points,mode=full_containment)
+            pass_prelims*=HM_pred[hip_candidate.id]==HIP_HM
+            
+            if not (Truth_K or pass_prelims):continue
+            # print("kaon")
             # if type(mip_candidate)==TruthParticle:
                 # if mip_candidate.creation_process not in ["Decay","primary","muIoni","conv","compt","eBrem","annihil","neutronInelastic","nCapture","muPairProd","muMinusCaptureAtRest"]:  process_codes+=[mip_candidate.creation_process]
                 # if mip_candidate.pdg_code==-13 and mip_candidate.parent_pdg_code==321 and mip_candidate.creation_process=="6::201":
@@ -126,23 +149,14 @@ def main(HMh5,analysish5,mode:bool=True,outfile=''):
             if ENTRY_NUM not in predicted_K_mu_mich:
                 predicted_K_mu_mich[ENTRY_NUM] = []
             # print(mip_candidate.reco_length)
-            predicted_K_mu_mich[ENTRY_NUM]+=[PredKaonMuMich(hip_candidate,particles,interactions,HM_acc,HM_pred,truth=Truth)]
-
+            # if 
+            predicted_K_mu_mich[ENTRY_NUM]+=[PredKaonMuMich(hip_candidate,particles,interactions,HM_acc,HM_pred,truth=Truth_K,reason=reason,truth_list=truth_list)]
+        # print("starting lambda")
         for lam_hip_candidate in particles:
-            Truth_hip=False
-            if mode:
-                assert type(lam_hip_candidate)==TruthParticle
-                Truth_hip=(abs(lam_hip_candidate.parent_pdg_code)==3122*
-                            is_contained(lam_hip_candidate.points,mode=full_containment)*
-                            is_contained(interactions[lam_hip_candidate.interaction_id].vertex,mode=full_containment)*
-                            abs(lam_hip_candidate.pdg_code)==2212*
-                            process_map[lam_hip_candidate.creation_process]=='6::201'*
-                            process_map[lam_hip_candidate.parent_creation_process]=='primary'
-                            )
+            for lam_mip_candidate in particles:
+                if lam_mip_candidate.interaction_id!=lam_hip_candidate.interaction_id: continue
+            
             # pass_prelims=True
-            pass_prelims_hip=is_contained(interactions[lam_hip_candidate.interaction_id].vertex,mode=full_containment)*is_contained(lam_hip_candidate.points,mode=full_containment)*lam_hip_candidate.reco_length>min_len
-            if mode:
-                pass_prelims_hip*=HM_pred[lam_hip_candidate.id]==HIP_HM
 
             # if not is_contained(interactions[lam_hip_candidate.interaction_id].vertex,mode=full_containment): continue
 
@@ -152,8 +166,8 @@ def main(HMh5,analysish5,mode:bool=True,outfile=''):
             #     if HM_pred[lam_hip_candidate.id]!=HIP_HM: continue #HIP
             # if lam_hip_candidate.reco_length<min_len:
                 # continue
-
-            for lam_mip_candidate in particles:
+            # print("lambda")
+            
                 # if not is_contained(interactions[lam_mip_candidate.interaction_id].vertex,mode=full_containment): continue
 
                 # if not is_contained(lam_mip_candidate.points,mode=full_containment):
@@ -165,30 +179,52 @@ def main(HMh5,analysish5,mode:bool=True,outfile=''):
 
                 # if np.min(cdist(lam_hip_candidate.points,lam_mip_candidate.reco_length))>200:
                 #     continue
-
-                Truth_mip=False
+                Truth_lam=False
+                reason=""
                 if mode:
                     assert type(lam_mip_candidate)==TruthParticle
-                    Truth_mip=(abs(lam_mip_candidate.parent_pdg_code)==3122*
-                                is_contained(lam_mip_candidate.points,mode=full_containment)*
-                                is_contained(interactions[lam_mip_candidate.interaction_id].vertex,mode=full_containment)*
-                                abs(lam_mip_candidate.pdg_code)==211*
-                                process_map[lam_mip_candidate.creation_process]=='6::201'*
-                                process_map[lam_mip_candidate.parent_creation_process]=='primary'
-                                )
-                # pass_prelims=True
-                pass_prelims_mip=is_contained(interactions[lam_mip_candidate.interaction_id].vertex,mode=full_containment)*is_contained(lam_mip_candidate.points,mode=full_containment)*lam_mip_candidate.reco_length>min_len
-                if mode:
-                    pass_prelims_mip*=HM_pred[lam_mip_candidate.id]==MIP_HM
+                    assert type(lam_hip_candidate)==TruthParticle
+                    # print("help",lam_mip_candidate.parent_creation_process,lam_mip_candidate.parent_pdg_code)
+                    truth_list=np.array([lam_mip_candidate.parent_pdg_code==3122,#0
+                                lam_hip_candidate.parent_pdg_code==3122,#1
+                                lam_hip_candidate.parent_track_id==lam_mip_candidate.parent_track_id,#2
+                                abs(lam_mip_candidate.pdg_code)==211,#3
+                                abs(lam_hip_candidate.pdg_code)==2212,#4
+                                is_contained(interactions[lam_hip_candidate.interaction_id].vertex,mode=full_containment,margin=margin0),
+                                # is_contained(lam_mip_candidate.points,mode=full_containment),#5
+                                # is_contained(interactions[lam_mip_candidate.interaction_id].vertex,mode=full_containment),#6   TODO#interaction vertex messed up?????????
+                                # is_contained(lam_hip_candidate.points,mode=full_containment),#7
+                                # is_contained(interactions[lam_hip_candidate.interaction_id].vertex,mode=full_containment),#8
+                                process_map[lam_mip_candidate.creation_process]=='6::201',#9
+                                process_map[lam_mip_candidate.parent_creation_process]=='primary' or (lam_mip_candidate.ancestor_pdg_code==3122 and process_map[lam_mip_candidate.ancestor_creation_process]=='primary'),#10
+                                # all_daughters_contained(lam_mip_candidate.ancestor_track_id,particles),#11
+                                process_map[lam_hip_candidate.creation_process]=='6::201',#12
+                                process_map[lam_hip_candidate.parent_creation_process]=='primary'  or (lam_hip_candidate.ancestor_pdg_code==3122 and process_map[lam_hip_candidate.ancestor_creation_process]=='primary'),#13
+                                # all_daughters_contained(lam_hip_candidate.ancestor_track_id,particles)#14
+                    ])
 
-                if not ((Truth_hip and Truth_mip) or (pass_prelims_hip and pass_prelims_mip)):
+                    Truth_lam=np.all(truth_list)
+                    if Truth_lam:
+                        myint=interactions[lam_hip_candidate.interaction_id]
+                        nu_type_L+=[(myint.current_type,myint.lepton_pdg_code,myint.interaction_type,myint.interaction_mode)]
+                    if not Truth_lam:
+                        reason=str((np.argwhere(truth_list==False))[0][0])
+                # pass_prelims=True
+                pass_prelims=is_contained(interactions[lam_hip_candidate.interaction_id].reco_vertex,mode=full_containment,margin=margin0)
+
+                # pass_prelims=is_contained(interactions[lam_hip_candidate.interaction_id].vertex,mode=full_containment)*is_contained(lam_hip_candidate.points,mode=full_containment)
+                # pass_prelims*=is_contained(interactions[lam_mip_candidate.interaction_id].vertex,mode=full_containment)*is_contained(lam_mip_candidate.points,mode=full_containment)
+                pass_prelims*=HM_pred[lam_hip_candidate.id]==HIP_HM
+                pass_prelims*=HM_pred[lam_mip_candidate.id]==MIP_HM
+
+                if not (Truth_lam or pass_prelims):
                     continue
 
                 
 
                 if ENTRY_NUM not in predicted_L:
                     predicted_L[ENTRY_NUM]=[]
-                predicted_L[ENTRY_NUM]+=[Pred_L(lam_hip_candidate,lam_mip_candidate,particles,interactions,HM_acc,HM_pred,truth=(Truth_hip and Truth_mip))]
+                predicted_L[ENTRY_NUM]+=[Pred_L(lam_hip_candidate,lam_mip_candidate,particles,interactions,HM_acc,HM_pred,truth=Truth_lam,reason=reason)]
 
 
     print(predicted_K_mu_mich)
@@ -196,7 +232,7 @@ def main(HMh5,analysish5,mode:bool=True,outfile=''):
     # print(predicted_K_michel)
     print(predicted_L)
     if outfile!='':
-        np.save(outfile,np.array([predicted_K_mu_mich,predicted_L,num_nu]))
+        np.save(outfile,np.array([predicted_K_mu_mich,predicted_L,num_nu,Counter(nu_type_K),Counter(nu_type_L)]))
     # raise Exception(potential_K.keys(),predicted_K.keys())
     return [predicted_K_mu_mich, predicted_L,num_nu]
 if __name__ == "__main__":

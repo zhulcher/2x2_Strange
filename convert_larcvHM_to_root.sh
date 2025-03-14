@@ -1,14 +1,14 @@
 DIR=/sdf/group/neutrino/zhulcher/
 
-WORKDIR=/sdf/data/neutrino/dcarber/larcv_files/NuMI_nu_cosmics/v09_89_01_01p01/
-OUTDIR=/sdf/data/neutrino/zhulcher/BNBNUMI/dan_carber_files/
+# WORKDIR=/sdf/data/neutrino/dcarber/larcv_files/NuMI_nu_cosmics/v09_89_01_01p01/
+# OUTDIR=/sdf/data/neutrino/zhulcher/BNBNUMI/dan_carber_files/
 
 
 rm -f error/*
 rm -f output/*
 
-# WORKDIR=/sdf/data/neutrino/zhulcher/BNBNUMI/simple_franky/
-# OUTDIR=/sdf/data/neutrino/zhulcher/BNBNUMI/simple_franky_files/
+WORKDIR=/sdf/data/neutrino/zhulcher/BNBNUMI/simple_franky/
+OUTDIR=/sdf/data/neutrino/zhulcher/BNBNUMI/simple_franky_files/
 
 
 # DIR=/home

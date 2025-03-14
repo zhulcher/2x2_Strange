@@ -56,12 +56,12 @@ for file in "$WORKDIR"/file_list_numi_nu_mc_part_*; do
 
 
 
-        file="${OUTDIR/_files/_npy}"/npyfiles/$basename_file.npy
+        file="${OUTDIR/_files/_npy2}"/$basename_file.npy
 
         if [[ ! -f "$file" ]]; then
             # rm $i/*
             echo "$file does not exist"
-            sbatch submit_job_larcvHM.sbatch $DIR $i $line
+            sbatch submit_job_larcvHM_truth.sbatch $DIR $i $line
         else 
         echo "$file found"
         fi
