@@ -94,6 +94,7 @@ if __name__ == "__main__":
         voxelmap = io.get_data('cluster3d', 'pcluster')
         truthinfo = io.get_data('particle', 'pcluster')
         semantics = io.get_data('sparse3d', 'pcluster_semantics')
+        truthinfo_primaries = io.get_data('particle', 'mpv')
 
         semantics_HM = io_out.get_data('sparse3d', 'pcluster_semantics_HM')
 
@@ -109,18 +110,89 @@ if __name__ == "__main__":
 
         # raise Exception(set(semanticsdict.values()))
         # break
+
+        pdgs=[truthinfo.as_vector()[j].pdg_code() for j in range(len(truthinfo.as_vector()))]
+
+        # assert len(truthinfo)==len(truthinfo.as_vector())
+
         for j in range(len(truthinfo)):
+
+            part=truthinfo.as_vector()[j]
+
+
+            if part.pdg_code() in [-2212,3222,3112] and part.energy_deposit()>0:
+                print("found 1 in larcv file a ",[part.pdg_code(),part.parent_pdg_code(),part.ancestor_pdg_code()],part.shape(),[part.track_id(),part.parent_track_id(),part.ancestor_track_id()],[part.id(),part.parent_id()],part.group_id(),pdgs[part.group_id()],i_entry,sys.argv[1],part.energy_init(),part.energy_deposit(),len(voxelmap.as_vector()[j]),part.num_voxels(),file=sys.stderr, flush=True)
+
+            if part.shape()==larcv.kShapeLEScatter: continue
+            # if len(voxelmap.as_vector()[j])==0: continue
+            # if part.energy_deposit()==0: continue
+            # if part.num_voxels()==0: continue
+            # assert len(voxelmap.as_vector()[j])==part.num_voxels(),(len(voxelmap.as_vector()[j]),part.num_voxels())
+
+            # if abs(part.pdg_code())==321:
+            #     raise Exception(part.pdg_code())
+
+            if abs(part.pdg_code()) in [13,211,2212,321,3222,3112]:
+
+                assert part.shape()==larcv.kShapeTrack,([part.pdg_code(),part.parent_pdg_code(),part.ancestor_pdg_code()],part.shape(),[part.track_id(),part.parent_track_id(),part.ancestor_track_id()],[part.id(),part.parent_id()],part.group_id(),pdgs[part.group_id()],i_entry,sys.argv[1],part.energy_init(),part.energy_deposit())
+
+            if part.shape()!=larcv.kShapeTrack: continue
+            if abs(part.pdg_code()) in [13,211]:continue
+            if abs(part.pdg_code()) not in [2212,321,3222,3112] and abs(part.pdg_code())< 1000000000:
+                raise Exception(part.pdg_code())
             
-            if (abs(truthinfo.as_vector()[j].pdg_code()) not in [2212,321] and abs(truthinfo.as_vector()[j].pdg_code())< 1000000000):continue
+            # if (abs(part.pdg_code()) not in [2212,321] and abs(part.pdg_code())< 1000000000):continue
             
-            if len(voxelmap.as_vector()[j])==0: continue
-            # print(abs(truthinfo.as_vector()[j].pdg_code()))
+            # if len(voxelmap.as_vector()[j])==0: continue
+            # print(abs(part.pdg_code()))
             # print("got one")
-            # print(truthinfo.as_vector()[j].pdg_code(),len(voxelmap.as_vector()[j]))
-            for k in range(len(voxelmap.as_vector()[j])):
+            # print(part.pdg_code(),len(voxelmap.as_vector()[j]))
+            # voxels=
+            # assert len(voxelmap.as_vector()[j])==len()
+
+            for k in range(voxelmap.as_vector()[j].as_vector().size()):
                 id=voxelmap.as_vector()[j].as_vector()[k].id()
                 # print(semanticsdict[id],id, semantics_HM.as_vector()[semanticsdict[id]].value())
                 semantics_HM.as_vector()[semanticsdict[id]].set(id,7)
-                # raise Exception(semantics_HM.as_vector()[semanticsdict[id]].id(),semantics_HM.as_vector()[semanticsdict[id]].value())
+                # raise Exception(semantics_HM.as_vector()[semanticsdict[id]].id(),part.pdg_code(),semantics_HM.as_vector()[semanticsdict[id]].value())
+        for j in range(len(truthinfo_primaries)):
+            part=truthinfo_primaries.as_vector()[j]
+            if part.pdg_code() in [-2212,3222,3112] and part.energy_deposit()>0:
+                print("found 2 in larcv file a ",[part.pdg_code(),part.parent_pdg_code(),part.ancestor_pdg_code()],part.shape(),[part.track_id(),part.parent_track_id(),part.ancestor_track_id()],[part.id(),part.parent_id()],part.group_id(),i_entry,sys.argv[1],part.energy_init(),part.energy_deposit(),part.num_voxels(),file=sys.stderr, flush=True)
+
+            if part.shape()==larcv.kShapeLEScatter: continue
+            # if len(voxelmap.as_vector()[j])==0: continue
+            # if part.energy_deposit()==0: continue
+            # if part.num_voxels()==0: continue
+            # assert len(voxelmap.as_vector()[j])==part.num_voxels(),(len(voxelmap.as_vector()[j]),part.num_voxels())
+
+            # if abs(part.pdg_code())==321:
+            #     raise Exception(part.pdg_code())
+
+            if abs(part.pdg_code()) in [13,211,2212,321,3222,3112]:
+
+                assert part.shape()==larcv.kShapeTrack,([part.pdg_code(),part.parent_pdg_code(),part.ancestor_pdg_code()],part.shape(),[part.track_id(),part.parent_track_id(),part.ancestor_track_id()],[part.id(),part.parent_id()],part.group_id(),pdgs[part.group_id()],i_entry,sys.argv[1],part.energy_init(),part.energy_deposit())
+
+            # if part.shape()!=larcv.kShapeTrack: continue
+            # if abs(part.pdg_code()) in [13,211]:continue
+            # if abs(part.pdg_code()) not in [2212,321,3222,3112] and abs(part.pdg_code())< 1000000000:
+            #     raise Exception(part.pdg_code())
+            
+            # # if (abs(part.pdg_code()) not in [2212,321] and abs(part.pdg_code())< 1000000000):continue
+            
+            # # if len(voxelmap.as_vector()[j])==0: continue
+            # # print(abs(part.pdg_code()))
+            # # print("got one")
+            # # print(part.pdg_code(),len(voxelmap.as_vector()[j]))
+            # # voxels=
+            # # assert len(voxelmap.as_vector()[j])==len()
+
+            # for k in range(len(voxelmap.as_vector()[j])):
+            #     id=voxelmap.as_vector()[j].as_vector()[k].id()
+            #     # print(semanticsdict[id],id, semantics_HM.as_vector()[semanticsdict[id]].value())
+            #     semantics_HM.as_vector()[semanticsdict[id]].set(id,7)
+
+
+
         io_out.save_entry()
     io_out.finalize()

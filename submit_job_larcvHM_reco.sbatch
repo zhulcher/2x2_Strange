@@ -20,20 +20,23 @@ echo $SLURMD_NODENAME
 echo $f
 echo $i ##SBATCH --exclude=sdfrome064,sdfrome061
 
-SPINE_LOC=/sdf/data/neutrino/icarus/spine/prod/numi_nu_corsika_mix/output_spine/
+# SPINE_LOC=/sdf/data/neutrino/icarus/spine/prod/numi_nu_corsika_mix/output_spine/
 
 IMAGE=/sdf/group/neutrino/images/develop.sif
 
-if [ -f "$i/larcv_HM.root" ]; then
-    echo "$i/larcv_HM.root exists."
-else
-    singularity exec --bind /sdf/group/neutrino/zhulcher,/sdf/data/neutrino/  $IMAGE bash -c "python3 $DIR/2x2_Strange/utils/add_HIPMIP.py $file $i/larcv_HM.root"
-fi
+# if [ -f "$i/larcv_HM.root" ]; then
+#     echo "$i/larcv_HM.root exists."
+# else
+#     singularity exec --bind /sdf/group/neutrino/zhulcher,/sdf/data/neutrino/  $IMAGE bash -c "python3 $DIR/2x2_Strange/utils/add_HIPMIP.py $file $i/larcv_HM.root"
+# fi
 
-if [ -f "$i/analysis_both.h5" ]; then
-    echo "$i/analysis_both.h5 exists."
-else
-    singularity exec --bind /sdf/group/neutrino/zhulcher,/sdf/data/neutrino/  $IMAGE bash -c "python3 $DIR/spine/bin/run.py -c $DIR/2x2_Strange/configs/test_io_both.cfg -s $file -o $i/analysis_both.h5"
+# if [ -f "$i/analysis_both.h5" ]; then
+#     echo "$i/analysis_both.h5 exists."
+# else
+#     ln -s fileB.html fileA.html
+#     singularity exec --bind /sdf/group/neutrino/zhulcher,/sdf/data/neutrino/  $IMAGE bash -c "python3 $DIR/spine/bin/run.py -c $DIR/2x2_Strange/configs/test_io_both.cfg -s $file -o $i/analysis_both.h5"
+
+
     # # FILE=SPINE_LOC/ basename /a/b/c/filename.root .root
     # base=$(basename $file .root)
     # FILE="$SPINE_LOC/$base"_spine.h5
@@ -52,4 +55,4 @@ else
     singularity exec --bind /sdf/group/neutrino/zhulcher,/sdf/data/neutrino/  $IMAGE bash -c "python3 $DIR/spine/bin/run.py -c $DIR/2x2_Strange/configs/hdf5writer.cfg -s $i/larcv_HM.root -o $i/analysis_HM_both.h5"
 fi
 
-singularity exec --bind /sdf/group/neutrino/zhulcher,/sdf/data/neutrino/  /sdf/group/neutrino/images/develop.sif bash -c "python3 -m cProfile $DIR/2x2_Strange/run_analysis.py --mode Truth --dir $i"
+singularity exec --bind /sdf/group/neutrino/zhulcher,/sdf/data/neutrino/  /sdf/group/neutrino/images/develop.sif bash -c "python3 -m cProfile $DIR/2x2_Strange/run_analysis.py $i"

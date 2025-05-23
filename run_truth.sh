@@ -5,7 +5,7 @@ DIR=/sdf/group/neutrino/zhulcher/
 
 
 
-WORKDIR=/sdf/data/neutrino/dcarber/NuMI_nu_spine/v09_89_01p03
+WORKDIR=/sdf/data/neutrino/icarus/spine/prod/numi_nu_corsika_mix/file_list.txt
 OUTDIR=/sdf/data/neutrino/zhulcher/BNBNUMI/dan_carber3_files/
 
 
@@ -16,7 +16,7 @@ rm -f output/*
 # directory="/sdf/data/neutrino/dcarber/NuMI_nu_spine/v09_89_01p03"
 
 # Loop over each file matching the pattern
-for file in "$WORKDIR"/file_list_numi_nu_mc_part_*; do
+for file in "$WORKDIR"*; do
     echo "Reading file: $file"
     
     # Loop over each line inside the file
