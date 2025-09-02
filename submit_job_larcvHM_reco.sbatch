@@ -6,7 +6,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
 #SBATCH --mem-per-cpu=16g
-#SBATCH --time=1:00:00
+#SBATCH --time=8:00:00
 #SBATCH --account=neutrino:icarus-ml
 #SBATCH --qos=preemptable
 
@@ -14,7 +14,7 @@
 export PYTHONUNBUFFERED=TRUE
 DIR=$1 
 i=$2
-file=$3
+# file=$3
 
 echo $SLURMD_NODENAME 
 echo $f
@@ -46,13 +46,13 @@ IMAGE=/sdf/group/neutrino/images/develop.sif
     # exit 1
     # fi
     # ln -s $FILE $i/analysis_both.h5
-fi
+# fi
 #source $DIR/spine_prod/configure.sh; source /sdf/data/neutrino/software/OpT0Finder/configure.sh;
 
-if [ -f "$i/analysis_HM_both.h5" ]; then
-    echo "$i/analysis_HM_both.h5 exists."
-else
-    singularity exec --bind /sdf/group/neutrino/zhulcher,/sdf/data/neutrino/  $IMAGE bash -c "python3 $DIR/spine/bin/run.py -c $DIR/2x2_Strange/configs/hdf5writer.cfg -s $i/larcv_HM.root -o $i/analysis_HM_both.h5"
-fi
+# if [ -f "$i/analysis_HM_both.h5" ]; then
+#     echo "$i/analysis_HM_both.h5 exists."
+# else
+#     singularity exec --bind /sdf/group/neutrino/zhulcher,/sdf/data/neutrino/  $IMAGE bash -c "python3 $DIR/spine/bin/run.py -c $DIR/2x2_Strange/configs/hdf5writer.cfg -s $i/larcv_HM.root -o $i/analysis_HM_both.h5"
+# fi
 
-singularity exec --bind /sdf/group/neutrino/zhulcher,/sdf/data/neutrino/  /sdf/group/neutrino/images/develop.sif bash -c "python3 -m cProfile $DIR/2x2_Strange/run_analysis.py $i"
+singularity exec --bind /sdf/group/neutrino/zhulcher,/sdf/data/neutrino/  /sdf/group/neutrino/images/develop.sif bash -c "python3 -m cProfile $DIR/2x2_Strange/run_analysis.py --mode reco --dir $i --compare_truth True"

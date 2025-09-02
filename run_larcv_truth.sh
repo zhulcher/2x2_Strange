@@ -5,9 +5,11 @@ DIR=/sdf/group/neutrino/zhulcher/
 
 
 
-# WORKDIR=/sdf/data/neutrino/dcarber/NuMI_nu_spine/v09_89_01p03
-WORKDIR=/sdf/data/neutrino/icarus/spine/prod/numi_nu_corsika_mix/file_list.txt
-OUTDIR=/sdf/data/neutrino/zhulcher/BNBNUMI/dan_carber3_files/
+# WORKDIR=/sdf/data/neutrino/icarus/spine/prod/numi_nu_corsika_mix/file_list.txt
+# OUTDIR=/sdf/data/neutrino/zhulcher/BNBNUMI/dan_carber3_larcv_truth/
+
+WORKDIR=/sdf/data/neutrino/zhulcher/grappa_inter_update_500/file_list.txt
+OUTDIR=/sdf/data/neutrino/zhulcher/BNBNUMI/dan_carber3_500_larcv_truth/
 
 
 rm -f error/*
@@ -32,20 +34,13 @@ for file in "$WORKDIR"*; do
         # echo "help"
         # echo "$basename_file"
 
-        mkdir -p $OUTDIR/$basename_file
+        mkdir -p $OUTDIR
 
         i=$OUTDIR/$basename_file
         
         # break
 
-        mine=`squeue -u zhulcher  -h -t pending,running -r | wc -l`
-        until (( $mine < 900 ));
-        do
-            echo "still too many jobs there......"
-            sleep 15
-            mine=`squeue -u zhulcher  -h -t pending,running -r | wc -l`
-
-        done
+        
 
         # if [ -f "$i/analysis_HM_both.h5" ]; then
         #     echo "$i/analysis_HM_both.h5 exists."
@@ -57,15 +52,27 @@ for file in "$WORKDIR"*; do
 
 
 
-        file="${OUTDIR/_files/_npy}"/npyfiles/$basename_file.npz
+        file=$OUTDIR/$basename_file.npy
 
         if [[ ! -f "$file" ]]; then
             # rm $i/*
             echo "$file does not exist"
-            sbatch submit_job_larcvHM.sbatch $DIR $i $line
+            sbatch submit_job_larcvHM_larcv.sbatch $DIR $i $line
         else 
         echo "$file found"
+        continue
         fi
+
+
+
+        mine=`squeue -u zhulcher  -h -t pending,running -r | wc -l`
+        until (( $mine < 900 ));
+        do
+            echo "still too many jobs there......"
+            sleep 15
+            mine=`squeue -u zhulcher  -h -t pending,running -r | wc -l`
+
+        done
 
 
         

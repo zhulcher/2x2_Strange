@@ -129,7 +129,7 @@ if __name__ == "__main__":
     final_interactions=defaultdict(list)
     # final_particles=defaultdict(list)
 
-    print("attempting to read",sys.argv[1])
+    print("attempting to read",sys.argv[2])
 
     cfg = '''
         IOManager: {
@@ -138,7 +138,7 @@ if __name__ == "__main__":
             IOMode       : 0
             InputFiles   : [%s]
         }
-        '''% sys.argv[1]
+        '''% sys.argv[2]
     #"MiniRun5_1E19_RHC.flow.0000001.larcv.root"
     # sys.argv[1]
     io = load_cfg(cfg)
@@ -291,6 +291,9 @@ if __name__ == "__main__":
             if pdg in interesting_pdgs:
                 pospdg_2_track_id[(pos2,y.ancestor_pdg_code())]=y.ancestor_track_id()
 
+                # if pdg==-11:
+                    # if 
+
 
                 
 
@@ -308,9 +311,11 @@ if __name__ == "__main__":
                 # if y.ancestor_pdg_code()==pdg:
                 assert key in interactions, (key,interactions.keys(),pos2,y.ancestor_pdg_code(),pdg)
 
-                if y.parent_pdg_code()==pdg and y.creation_process()=='Decay':
-
-                    interactions[key][1][(y.parent_track_id(),y.parent_pdg_code())]+=[(y.pdg_code(),y.p(),y.track_id())]
+                if y.creation_process()=='Decay' and y.parent_pdg_code()==pdg:
+                    # and ( or (y.ancestor_pdg_code()==pdg and y.parent_pdg_code() in [-13,211] and y.pdg_code()==-11))
+                    s_pos=y.position()
+                    e_pos=y.end_position()
+                    interactions[key][1][(y.ancestor_track_id(),y.ancestor_pdg_code())]+=[(y.pdg_code(),y.p(),y.track_id(),[[s_pos.x(),s_pos.y(),s_pos.z()],[e_pos.x(),e_pos.y(),e_pos.z()]])]
                     print("ok its something",y.creation_process(),y.pdg_code(),y.parent_pdg_code(),y.ancestor_pdg_code(),y.track_id(),y.parent_track_id(),y.ancestor_track_id(),pos2)
                     # raise Exception("something else afoot",interactions,pos2,y.ancestor_pdg_code(),pdg)
 
@@ -403,11 +408,16 @@ if __name__ == "__main__":
             print("adding",x.pdg_code(),x.p())
             pdg_dict[x.pdg_code()]+=[x.p()]
 
-            interactions[key][1][new_key]+=[(x.pdg_code(),x.p(),x.track_id())]
+            s_pos=x.position()
+            e_pos=x.end_position()
+            interactions[key][1][new_key]+=[(x.pdg_code(),x.p(),x.track_id(),[[s_pos.x(),s_pos.y(),s_pos.z()],[e_pos.x(),e_pos.y(),e_pos.z()]])]
         for key in interactions:
             for prim in interactions[key][1]:
                 d=[z for z in interactions[key][1][prim] if z[0]==prim[1]]
-                assert len(d)>0, interactions[key][1][prim]
+                if len(d)==0:
+                    sys.stderr.write("unknown error"+str(interactions[key][1][prim]))
+                    continue
+                # assert len(d)>0, 
 
 
                 # assert prim[0]>10000 or prim[0]==d[0][2],(prim,d)
@@ -415,7 +425,8 @@ if __name__ == "__main__":
                     print("The track ids don't match up at all!!!!!!!",prim,d)
             if len(interactions[key][1])>0:
                 assert interactions[key][2]!=-1, [(z.pdg_code(),z.nu_current_type()) for z in truthinfo.as_vector()]
-                assert interactions[key][2] is not None, [(z.pdg_code(),z.nu_current_type(),is_contained([z.position().x(),z.position().y(),z.position().z()],margin=0)) for z in truthinfo.as_vector()]
+                #TODO this is valid, but not for mvmpr
+                # assert interactions[key][2] is not None, (key,interactions,[(z.pdg_code(),z.nu_current_type(),is_contained([z.position().x(),z.position().y(),z.position().z()],margin=0)) for z in truthinfo.as_vector()])
                 # for d in interactions[key][1]
 
                 
@@ -482,7 +493,7 @@ if __name__ == "__main__":
         # final_particles=merge_dicts(final_particles,particles)
         # assert not set(interactions.keys()).intersection(final_interactions.keys())
         final_interactions.update(interactions)
-    SAVEDIR=os.path.dirname(sys.argv[1]).replace("_files","_npy2")
+    SAVEDIR=os.path.dirname(sys.argv[1]).replace("_files","_larcv_truth")
     # os.makedirs(SAVEDIR, exist_ok=True)
     # print("SAVEDIR",SAVEDIR)
     print([pdg_dict,neutrinos,final_interactions])

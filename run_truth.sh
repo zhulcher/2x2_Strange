@@ -5,8 +5,15 @@ DIR=/sdf/group/neutrino/zhulcher/
 
 
 
-WORKDIR=/sdf/data/neutrino/icarus/spine/prod/numi_nu_corsika_mix/file_list.txt
-OUTDIR=/sdf/data/neutrino/zhulcher/BNBNUMI/dan_carber3_files/
+# WORKDIR=/sdf/data/neutrino/dcarber/NuMI_nu_spine/v09_89_01p03
+# WORKDIR=/sdf/data/neutrino/icarus/spine/prod/numi_nu_corsika_mix/file_list.txt
+# OUTDIR=/sdf/data/neutrino/zhulcher/BNBNUMI/dan_carber3_files_truth/
+
+# WORKDIR=/sdf/data/neutrino/icarus/spine/prod/numi_nu_corsika_mix/file_list.txt
+# OUTDIR=/sdf/data/neutrino/zhulcher/BNBNUMI/dan_carber3_files_truth/
+
+WORKDIR=/sdf/data/neutrino/zhulcher/grappa_inter_update_250/file_list.txt
+OUTDIR=/sdf/data/neutrino/zhulcher/BNBNUMI/dan_carber3_250_files_truth/
 
 
 rm -f error/*
@@ -37,14 +44,7 @@ for file in "$WORKDIR"*; do
         
         # break
 
-        mine=`squeue -u zhulcher  -h -t pending,running -r | wc -l`
-        until (( $mine < 900 ));
-        do
-            echo "still too many jobs there......"
-            sleep 15
-            mine=`squeue -u zhulcher  -h -t pending,running -r | wc -l`
-
-        done
+        
 
         # if [ -f "$i/analysis_HM_both.h5" ]; then
         #     echo "$i/analysis_HM_both.h5 exists."
@@ -56,7 +56,7 @@ for file in "$WORKDIR"*; do
 
 
 
-        file="${OUTDIR/_files/_npy2}"/$basename_file.npy
+        file="${OUTDIR/_files/_analysis}"/npyfiles/$basename_file.npz
 
         if [[ ! -f "$file" ]]; then
             # rm $i/*
@@ -64,7 +64,20 @@ for file in "$WORKDIR"*; do
             sbatch submit_job_larcvHM_truth.sbatch $DIR $i $line
         else 
         echo "$file found"
+        continue
         fi
+
+
+        mine=`squeue -u zhulcher  -h -t pending,running -r | wc -l`
+        until (( $mine < 900 ));
+        do
+            echo "still too many jobs there......"
+            sleep 15
+            mine=`squeue -u zhulcher  -h -t pending,running -r | wc -l`
+
+        done
+
+        # exit 0
 
 
         

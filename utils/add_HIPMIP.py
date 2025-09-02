@@ -120,8 +120,8 @@ if __name__ == "__main__":
             part=truthinfo.as_vector()[j]
 
 
-            if part.pdg_code() in [-2212,3222,3112] and part.energy_deposit()>0:
-                print("found 1 in larcv file a ",[part.pdg_code(),part.parent_pdg_code(),part.ancestor_pdg_code()],part.shape(),[part.track_id(),part.parent_track_id(),part.ancestor_track_id()],[part.id(),part.parent_id()],part.group_id(),pdgs[part.group_id()],i_entry,sys.argv[1],part.energy_init(),part.energy_deposit(),len(voxelmap.as_vector()[j]),part.num_voxels(),file=sys.stderr, flush=True)
+            # if part.pdg_code() in [-2212,3222,3112] and part.energy_deposit()>0:
+            #     print("found 1 in larcv file a ",[part.pdg_code(),part.parent_pdg_code(),part.ancestor_pdg_code()],part.shape(),[part.track_id(),part.parent_track_id(),part.ancestor_track_id()],[part.id(),part.parent_id()],part.group_id(),pdgs[part.group_id()],i_entry,sys.argv[1],part.energy_init(),part.energy_deposit(),len(voxelmap.as_vector()[j]),part.num_voxels(),file=sys.stderr, flush=True)
 
             if part.shape()==larcv.kShapeLEScatter: continue
             # if len(voxelmap.as_vector()[j])==0: continue

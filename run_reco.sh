@@ -6,8 +6,18 @@ DIR=/sdf/group/neutrino/zhulcher/
 
 
 # WORKDIR=/sdf/data/neutrino/dcarber/NuMI_nu_spine/v09_89_01p03
-WORKDIR=/sdf/data/neutrino/icarus/spine/prod/numi_nu_corsika_mix/file_list.txt
-OUTDIR=/sdf/data/neutrino/zhulcher/BNBNUMI/dan_carber3_files/
+
+
+# WORKDIR=/sdf/data/neutrino/icarus/spine/prod/numi_nu_corsika_mix/file_list.txt
+# OUTDIR=/sdf/data/neutrino/zhulcher/BNBNUMI/dan_carber3_files_reco/
+
+
+# SRC_DIR="/sdf/data/neutrino/icarus/spine/prod/numi_nu_corsika_mix/output_spine"
+
+WORKDIR=/sdf/data/neutrino/zhulcher/grappa_inter_update_250/file_list.txt
+OUTDIR=/sdf/data/neutrino/zhulcher/BNBNUMI/dan_carber3_250_files_reco/
+SRC_DIR="/sdf/data/neutrino/zhulcher/grappa_inter_update_250/output_spine"
+
 
 
 rm -f error/*
@@ -16,12 +26,50 @@ rm -f output/*
 
 # directory="/sdf/data/neutrino/dcarber/NuMI_nu_spine/v09_89_01p03"
 
+if false; then
+
+    
+    DEST_DIR="$OUTDIR"
+
+    for file in "$SRC_DIR"/*.h5; do
+        filename=$(basename "$file")                            # e.g., foo_spine.h5
+        base="${filename%.h5}"                                   # remove .h5
+        base="${base//_spine/}"                                   # remove _spine
+        target_dir="$DEST_DIR/$base"
+        target_link="$target_dir/analysis_reco.h5"
+
+        if [ ! -e "$target_link" ]; then
+            mkdir -p "$target_dir"
+            ln -s "$file" "$target_link"
+            echo "Created symlink: $target_link -> $file"
+        else
+            echo "Skipping existing: $target_link"
+        fi
+
+        # if [ ! -f "$target_dir/analysis_HM_reco.h5" ]; then
+        #     echo "Error: $target_dir/analysis_HM_reco.h5 does not exist." >&2
+        #     #   exit 1
+        # fi
+    done
+
+fi
+
+
+
+
+# done
+
+
+
+
 # Loop over each file matching the pattern
-for file in "$WORKDIR"*; do
+for file in "$WORKDIR"*; 
+do
     echo "Reading file: $file"
     
     # Loop over each line inside the file
-    while IFS= read -r line; do
+    while IFS= read -r line; 
+    do
         # echo "Processing: $line"
         # Do something with $line, such as copying, analyzing, etc.
     
@@ -32,14 +80,27 @@ for file in "$WORKDIR"*; do
         # echo "help"
         # echo "$basename_file"
 
-        mkdir -p $OUTDIR/$basename_file
+        mkdir -p $OUTDIR
 
         i=$OUTDIR/$basename_file
+
+
+        file="${OUTDIR/_files/_analysis}"/npyfiles/$basename_file.npz
+
+        if [[ ! -f "$file" ]]; then
+            # rm $i/*
+            echo "$file does not exist"
+            sbatch submit_job_larcvHM_reco.sbatch $DIR $i #$line
+        else 
+        echo "$file found"
+        sbatch submit_job_larcvHM_reco.sbatch $DIR $i #$line
+        # continue
+        fi
         
         # break
 
         mine=`squeue -u zhulcher  -h -t pending,running -r | wc -l`
-        until (( $mine < 900 ));
+        until (( $mine < 1500 ));
         do
             echo "still too many jobs there......"
             sleep 15
@@ -57,30 +118,25 @@ for file in "$WORKDIR"*; do
 
 
 
-        file="${OUTDIR/_files/_npy}"/npyfiles/$basename_file.npz
+        
 
-        if [[ ! -f "$file" ]]; then
-            # rm $i/*
-            echo "$file does not exist"
-            sbatch submit_job_larcvHM.sbatch $DIR $i $line
-        else 
-        echo "$file found"
-        fi
+        
+
 
 
         
-# python3 -c "
-# import numpy as np
-# import sys
+# # python3 -c "
+# # import numpy as np
+# # import sys
 
-# try:
-#     np.load('$file',allow_pickle=True)
-#     print('$file is valid')
-# except Exception as e:
-#     print(f'Invalid .npy file: {e}')
-#     sys.exit(1)
-# " || sbatch submit_job_larcvHM.sbatch $DIR $i $line
-#         fi
+# # try:
+# #     np.load('$file',allow_pickle=True)
+# #     print('$file is valid')
+# # except Exception as e:
+# #     print(f'Invalid .npy file: {e}')
+# #     sys.exit(1)
+# # " || sbatch submit_job_larcvHM.sbatch $DIR $i $line
+# #         fi
 
         
         
@@ -88,32 +144,32 @@ for file in "$WORKDIR"*; do
     done < "$file"
 done
 
-# for i in "${arr[@]}"
-# do
-# #    echo "$i"
-# #    mkdir -p $i
-# #    if [ ! -e "$i/output_0_0000-edepsim.root" ]; then
-# #       cp zach/stage0/$i/output_0_0000-edepsim.root $i
-# #    fi
-# #    if [ ! -e "$i/output_0_0000-larcv.root" ]; then
-# #       cp zach/stage0/$i/output_0_0000-larcv.root $i
-# #    fi
-# #    python3 utils/add_HIPMIP.py $i/output_0_0000-larcv.root $i/output_0_0000-larcv_HM.root
-# done
+# # for i in "${arr[@]}"
+# # do
+# # #    echo "$i"
+# # #    mkdir -p $i
+# # #    if [ ! -e "$i/output_0_0000-edepsim.root" ]; then
+# # #       cp zach/stage0/$i/output_0_0000-edepsim.root $i
+# # #    fi
+# # #    if [ ! -e "$i/output_0_0000-larcv.root" ]; then
+# # #       cp zach/stage0/$i/output_0_0000-larcv.root $i
+# # #    fi
+# # #    python3 utils/add_HIPMIP.py $i/output_0_0000-larcv.root $i/output_0_0000-larcv_HM.root
+# # done
 
 
 
-#   python3 $DIR/spine/bin/run.py -c $DIR/2x2_Strange/configs/test_io_both.cfg -s $i/output_0_0000-larcv.root -o $i/output_0_0000-analysis_both.h5
-#   python3 $DIR/spine/bin/run.py -c $DIR/2x2_Strange/configs/hdf5writer.cfg -s $i/output_0_0000-larcv_HM.root -o $i/output_0_0000-analysis_HM_both.h5
+# #   python3 $DIR/spine/bin/run.py -c $DIR/2x2_Strange/configs/test_io_both.cfg -s $i/output_0_0000-larcv.root -o $i/output_0_0000-analysis_both.h5
+# #   python3 $DIR/spine/bin/run.py -c $DIR/2x2_Strange/configs/hdf5writer.cfg -s $i/output_0_0000-larcv_HM.root -o $i/output_0_0000-analysis_HM_both.h5
 
-# file_names=$(find "$WORKDIR" -type f -exec basename {} \;)
+# # file_names=$(find "$WORKDIR" -type f -exec basename {} \;)
 
-# # Check for duplicates using sort and uniq
-# duplicates=$(echo "$file_names" | sort | uniq -d)
+# # # Check for duplicates using sort and uniq
+# # duplicates=$(echo "$file_names" | sort | uniq -d)
 
-# if [ -z "$duplicates" ]; then
-#     echo "All file names are unique."
-# else
-#     echo "Duplicate file names found:"
-#     echo "$duplicates"
-# fi
+# # if [ -z "$duplicates" ]; then
+# #     echo "All file names are unique."
+# # else
+# #     echo "Duplicate file names found:"
+# #     echo "$duplicates"
+# # fi
