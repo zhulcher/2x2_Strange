@@ -173,7 +173,7 @@ edep-sim_testing/*
 node_modules/*
 *.js
 *https*
-*plot*
+# *plot*
 event_displays/*
 zach/*
 *.pptx
@@ -187,5 +187,7 @@ nohup.out
 
 profile_*
 *.prof
+*.lprof
 configs/flashmatch*
 prod_test*
+*_k0s.py

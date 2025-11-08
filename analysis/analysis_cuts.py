@@ -2,18 +2,10 @@
 This file contains output classes and cut functions useful for reconstructing kaons and 
 lambdas in a liquid argon TPC using the reconstruction package SPINE https://github.com/DeepLearnPhysics/spine
 """
-# from ast import Module
-# from collections import Counter
-
-# from numba import bool_
-
-
 
 import copy
-# from _pytest.monkeypatch import V
+from types import NoneType
 from scipy.spatial.distance import cdist
-# from sympy import false                   
-# import string
 SOFTWARE_DIR = '/sdf/group/neutrino/zhulcher/spine' #or wherever on sdf
 
 import sys
@@ -23,24 +15,28 @@ from spine.data.out import TruthParticle,RecoParticle,RecoInteraction,TruthInter
 from spine.utils.globals import DELTA_SHP, MUON_PID,PHOT_PID, PION_PID, PROT_PID,KAON_PID,KAON_MASS,PROT_MASS, PION_MASS,MICHL_SHP,TRACK_SHP,SHOWR_SHP,LOWES_SHP
 from spine.utils.geo.manager import Geometry
 from spine.utils.energy_loss import csda_ke_lar
-# from spine.utils.vertex import get_pseudovertex
 import numpy as np
-# from scipy import stats as st
-
-# from copy import deepcopy
 from numba import njit
+
+
+NUMI_BEAM_DIR=[.388814672,-.058321970,.919468161]
+
+NUMI_ROT=np.array([
+    [ 0.921035925,  0.022715103,  0.388814672],
+    [ 0.0,          0.998297825, -0.058321970],
+    [-0.389477631,  0.053716629,  0.919468161]
+]).T#Translation from icarus coord to numi coord
+
+assert np.linalg.norm(NUMI_ROT@NUMI_ROT.T-np.eye(3))<.0001
 
 @njit
 def norm3d(arr):
-    # out = np.empty(len(arr),dtype=np.float64)
-    # for i in range(len(arr)):
-        # x, y, z = arr[i]
-        # out[i] = 
+    assert len(arr)==3
     return (arr[0]**2 + arr[1]**2 + arr[2]**2) ** 0.5
 
 
 
-margin0=[[15,15],[15,15],[10,60]]
+margin0=[[15.,15.],[15.,15.],[10.,60.]]
 
 PI0_MASS=135.0 #[MeV/c^2]
 
@@ -65,19 +61,19 @@ P_PI0_Kp_Decay=np.sqrt(E_PI0_Kp_Decay**2-PI0_MASS**2)
 
 #TODO add sigma photon as a primary 
 
-drift_dir_map={}
+# drift_dir_map={}
 
 analysis_type='icarus'
 if analysis_type=='2x2':
     full_containment='detector'
 else:
     full_containment='module'
-    drift_dir_map={0:np.array([-1,0,0]),
-                   1:np.array([1,0,0]),
-                   2:np.array([-1,0,0]),
-                   3:np.array([1,0,0]),}
+    # drift_dir_map={0:np.array([-1,0,0]),
+    #                1:np.array([1,0,0]),
+    #                2:np.array([-1,0,0]),
+    #                3:np.array([1,0,0]),}
 
-min_len=2.5
+min_len=3
 
 
 HIP_HM = 7
@@ -90,9 +86,9 @@ SIG0_MASS = 1192.642  # [MeV/c^2]
 
 
 # Particle = RecoParticle | TruthParticle
-Interaction = RecoInteraction | TruthInteraction
-
-Particle = TruthParticle|RecoParticle
+from typing import TypeAlias
+Interaction:TypeAlias= RecoInteraction | TruthInteraction
+Particle:TypeAlias = TruthParticle|RecoParticle
 
 
 Model="icarus"
@@ -143,7 +139,7 @@ def is_primary_hotfix(p:Particle)->bool:
             return True
     return p.is_primary
 
-def HM_pred_hotfix(p:Particle,hm_pred:dict[int,np.ndarray],old=False)->int:
+def HM_pred_hotfix(p:Particle,hm_pred:dict[int,np.ndarray]|NoneType=None,old=False)->int:
 
 
     if old and hm_pred is not None:
@@ -189,6 +185,8 @@ def angle_between(a, b):
         a = np.asarray(a)
         b = np.asarray(b)
         cos_theta = np.dot(a, b) / (anorm * bnorm)
+        assert cos_theta==cos_theta,(cos_theta,a,b)
+        assert float(cos_theta)==cos_theta,(cos_theta,a,b)
         cos_theta = np.clip(cos_theta, -1.0, 1.0)
     return np.arccos(cos_theta)  
 
@@ -196,206 +194,12 @@ def angle_between(a, b):
 
 Geo = Geometry(detector=Model)
 
-# class ExtraChild:
-#     # child_id:int
-#     dist_to_parent:float
-#     # proj_dist_to_parent:float
-#     angle_to_parent:float
-#     # truth:bool
-#     child:Particle
-#     child_hm_pred: int
-
-#     """
-#     Storage class for extra children of any particle
-#     Attributes
-#     ----------
-#     dist_to_parent: float
-#         parent end to child start distance
-#     proj_dist_to_parent: float
-#         parent to child projected distance of closest approach
-#     angle_to_parent: float
-#         angle between child start direction and line from parent end to child start
-#     truth: bool
-#         is this a true child of the parent?
-#     child: Particle
-#         Particle object for the child
-#     child_hm_pred: int
-#         HM prediction for the child
-#     parent: None|Particle
-#         If the parent particle is specified, ignore the start point and use the point of closest approach from the parent (line) to the child (line)
-#     """
-#     def __init__(self, child:Particle,parent_end_pt:np.ndarray,hm_pred:list[np.ndarray],parent:None|Particle=None):
-#         self.child=child
-        
-#         par_end=parent_end_pt
-#         self.dist_to_parent=float(norm3d(child.start_point-par_end))
-#         # self.proj_dist_to_parent=np.nan
-#         # if parent!=None and not is_contained(parent.points,mode=full_containment):
-#             # print(parent.reco_end_dir,parent.reco_end_dir)
-#             # par_end = get_pseudovertex(
-#             #     start_points=np.array([parent.end_point, child.start_point], dtype=float),
-#             #     directions=[parent.reco_end_dir, child.reco_start_dir],
-#             # )
-#             # self.proj_dist_to_parent=collision_distance(parent,child,orientation=["end","start"])[-1]
-
-#         self.child_hm_pred=HM_pred_hotfix(child,hm_pred)
-#         if self.dist_to_parent==0:
-#             self.angle_to_parent=0
-#         # else:
-#             # self.angle_to_parent=direction_acos((child.start_point-par_end)/self.dist_to_parent,child.reco_start_dir)
-#         # self.truth=False
-#         """
-#         Initialize with all of the necessary particle attributes
-
-#         Parameters
-#         ----------
-#         child : Particle
-#             child particle
-#         parent_end_pt: list[float]
-#             end point of parent particle
-#         hm_pred: list[np.ndarray]
-#             HM predictions for the particles
-#         """
-
-
-# class PotK:
-#     """
-#     Storage class for primary Kaons and their cut parameters
-
-#     Attributes
-#     ----------
-#     hip_len: float
-#         len attribute of the particle object
-#     dir_acos: float
-#         arccos of the particle direction with the beam direction
-#     k_hm_acc:float
-#         percent of the voxels of this particle
-#         whose Hip/Mip semantic segmentation matches the overall prediction
-#     """
-
-#     hip_len: float
-#     dir_acos: float
-#     k_hm_acc: float
-#     dist_from_hip: float
-#     proj_dist_from_hip:float
-#     k_extra_children: list[ExtraChild]
-#     # dist_Hausdorff_from_hip:float
-#     pred_end: list[float]
-#     truth: bool
-#     hip: Particle
-#     truth_list:list[bool]
-    
-
-#     def __init__(self, kaon:Particle,hm_acc:float,mip:Particle,particles:list[Particle],interactions:list[Interaction],set_truth:bool):
-#         """
-#         Initialize with all of the necessary particle attributes
-
-#         Parameters
-#         ----------
-#         kaon : Particle
-#             Kaon candidate particle object
-#         hm_acc:float
-#             percent of the voxels of this particle whose Hip/Mip semantic segmentation matches the overall prediction
-#         """
-#         self.hip_len = kaon.reco_length
-#         self.dir_acos = direction_acos(kaon.reco_start_dir)
-#         self.k_hm_acc = hm_acc
-#         self.k_extra_children=[]
-#         self.dist_from_hip=0
-#         self.proj_dist_from_hip=0
-#         # self.dist_Hausdorff_from_hip=0
-#         self.hip=kaon
-#         self.truth_list=[False]
-
-        
-        # if set_truth:
-        #     assert isinstance(mip,TruthParticle) and isinstance(self.hip,TruthParticle) and isinstance(kaon,TruthParticle)
-        #     vis_part=[part.orig_id for part in particles if part.reco_length>3]
-        #     # true_par_id=mip.parent_id
-        #     fake_hip=kaon
-        #     id_to_particle={}
-        #     for par in particles:
-        #         id_to_particle[par.orig_id]=par
-
-        #     done=False
-        #     while not done:
-        #         done=True
-        #         for id in fake_hip.children_id:
-        #             if id not in id_to_particle:
-        #                 break
-        #             if abs(id_to_particle[id].pdg_code)==321 and norm3d(fake_hip.end_point-id_to_particle[id].start_point)<3 and id not in vis_part:
-        #                 done=False
-        #                 fake_hip=id_to_particle[id]
-        #                 break
-        #     self.truth_list=[abs(fake_hip.pdg_code)==321,(mip.parent_id==fake_hip.orig_id or (mip.parent_id in fake_hip.children_id and mip.parent_id not in vis_part)),abs(mip.parent_pdg_code)==321,(self.hip.is_primary or bool(norm3d(self.hip.start_point-interactions[mip.interaction_id].vertex)<min_len)),bool(norm3d(fake_hip.end_point-mip.start_point)<3)]
-        # self.truth=bool(np.all(self.truth_list))
-
-# class PotMich:
-#     """
-#     Storage class for primary Kaons with muon child and michel and their cut parameters
-
-#     Attributes
-#     ----------
-#     mich_id : int
-#         id for hip associated to this class
-#     dist_to_mich: float
-#         distance from mich start to mip end
-#     mu_extra_children: list[ExtraChild]
-#         extra children for the mip
-#     HM_acc_mich:float
-#         percent of the voxels of this particle whose Hip/Mip semantic segmentation matches the overall prediction
-#     """
-
-#     mich_id: int
-#     dist_to_mich: float
-#     proj_dist_to_mich:float
-#     mu_extra_children: list[ExtraChild]
-#     # decay_t_to_dist: float
-#     mich_hm_acc: float
-#     truth: bool
-#     mich:Particle
-
-#     def __init__(
-#         self, mich:Particle, mich_hm_acc
-#     ):
-#         """
-#         Initialize with all of the necessary particle attributes
-
-#         Parameters
-#         ----------
-#         pred_K:PredK
-#             PredK object with associated hip and mip information
-#         mich_id : int
-#             id for hip associated to this class
-#         dist_to_mich: float
-#             distance from mich start to mip end
-#         mu_extra_children: list[ExtraChild]
-#             extra children parameters as defined in 'children' function for the mip
-#         HM_acc_mich:float
-#             percent of the voxels of this particle whose Hip/Mip semantic segmentation
-#             matches the overall prediction
-#         """
-
-#         self.mich_id = mich.id
-#         self.dist_to_mich = 0
-#         self.proj_dist_to_mich=0
-#         self.mu_extra_children = []
-#         self.mich_hm_acc = mich_hm_acc
-#         self.truth=False
-#         self.mich=mich
-
-#         # self.decay_t=decay_t
-#         # self.decay_sep=decay_sep
-
-
-
-
 class PredKaonMuMich:
     __slots__ = ('event_number', 'truth','reason','pass_failure','error',
                 'truth_list','hip','hm_pred','fm_interactions','particles',
                 'potential_kaons','truth_interaction_vertex','truth_Kp','truth_interaction_nu_id',
                 'truth_hip','truth_michel','truth_pi0_gamma','real_K_momentum',
-                'truth_interaction_overlap','decay_mip_dict','truth_interaction_id','is_flash_matched','match_overlaps','reco_vertex','primary_particle_counts')
+                'truth_interaction_overlap','decay_mip_dict','truth_interaction_id','is_flash_matched','match_overlaps','reco_vertex','primary_particle_counts','kaon_path','other_mip_dict')
     """
     Storage class for primary Kaons with muon child and their cut parameters
 
@@ -409,16 +213,11 @@ class PredKaonMuMich:
         is this a truth muon coming from a kaon
     """
 
-    # mip_len_base: float
-    # mu_hm_acc: float
-    # potential_kaons: list[PotK]
-    # potential_michels: list[PotMich]
-    # mu_extra_children:list[ExtraChild]
     truth:bool
     # mip:Particle
 
     # true_signal:bool
-    potential_kaons:list[tuple[Particle,list[tuple[list[Particle],list[str]]]]]
+    potential_kaons:list[tuple[Particle,list[tuple[Particle,list[str]]]]]
 
     def __init__(
         self,
@@ -431,7 +230,7 @@ class PredKaonMuMich:
         hm_pred:dict[int,np.ndarray],
         
         truth:bool,
-        reason:bool,
+        reason:str,
         truth_list,
         truth_particles,
         truth_interactions
@@ -453,26 +252,26 @@ class PredKaonMuMich:
         self.event_number=ENTRY_NUM
         self.truth=truth
         self.reason=reason
-        self.pass_failure=""
+        self.pass_failure=[]
         # self.mip=mip
         # self.true_signal=False
         self.error=""
         self.truth_list=truth_list
-        self.hip=K_hip
+        
         # self.accepted_mu=None
         # self.hm_pred=hm_pred
-        
-
-
-        
-
         
 
         self.fm_interactions=[(reco_vert_hotfix(i),i.is_flash_matched,i.id) for i in interactions]
         if self.truth and type(Particle)==TruthParticle:
             assert abs(self.hip.pdg_code)==321,self.hip.pdg_code
         interaction=interactions[self.hip.interaction_id]
-        self.particles=[p for p in interaction.particles if len(p.points)>=3 and is_contained(p.start_point,margin=-5) and (p.shape in [MICHL_SHP,SHOWR_SHP,LOWES_SHP,DELTA_SHP] or is_contained(p.end_point,margin=-5))]
+        self.particles:list[Particle]=copy.deepcopy([p for p in interaction.particles if (len(p.points)>=3 or p.shape in [MICHL_SHP]) and is_contained(p.start_point,margin=-5) and (p.shape in [MICHL_SHP,SHOWR_SHP,LOWES_SHP,DELTA_SHP] or is_contained(p.end_point,margin=-5))])
+        ids=[p.id for p in self.particles]
+        if K_hip.id in ids:
+            self.hip=self.particles[ids.index(K_hip.id)]
+        else:
+            self.hip=copy.deepcopy(K_hip)
         self.potential_kaons=[]
 
         self.is_flash_matched=interaction.is_flash_matched
@@ -506,10 +305,19 @@ class PredKaonMuMich:
 
         self.primary_particle_counts=interaction.primary_particle_counts
 
+        self.kaon_path={}
+
+        for n,p in enumerate(truth_particles):
+            if p.pdg_code==321 and p.ancestor_pdg_code==321:
+                self.kaon_path[n]=p
+
+
 
         # self.primaries=[]
 
         self.decay_mip_dict={}
+
+        self.other_mip_dict={}
 
         if type(self.hip)==TruthParticle:
             assert type(interactions[0])==TruthInteraction,(type(interactions[0]))
@@ -538,6 +346,8 @@ class PredKaonMuMich:
             #     self.truth_mips[n]=k
             if abs(k.pdg_code) in [211,13] and process_map[k.creation_process]=='6::201' and k.parent_pdg_code==321 and k.ancestor_pdg_code==321:
                 self.decay_mip_dict[n]=k
+            if abs(k.pdg_code) in [211,13] and process_map[k.creation_process]=='6::201' and k.parent_pdg_code==321:
+                self.other_mip_dict[n]=k
             if k.pdg_code==-11 and k.parent_pdg_code in [-13,211] and process_map[k.creation_process]=='6::201' and k.ancestor_pdg_code==321:
                 self.truth_michel[n]=k
             # if k.is_primary:
@@ -608,746 +418,363 @@ class PredKaonMuMich:
 
         # else: print("good end")
     # @profile
-    def pass_cuts(self,cuts:dict[str,dict[str,bool|list]|bool])->bool:
+    def pass_cuts(self,cuts:dict)->bool:#dict[str,dict[str,bool|list]|bool]
+        original_hip_id=self.hip.id
+        if self.hip in self.particles:
+            h=self.particles.index(self.hip)
+        self.particles=copy.deepcopy(self.particles)
 
-        self.pass_failure=[]
-        # self.potential_kaons=[[self.hip,[],[]]]
-        # passing_len=False
-        # klens=[]
-        # michlens=[]
-        # passed=True
-
-        # closest_flash_matched_interaction=None
-        # best_dist=np.inf
-        # particles:list[Particle]=interaction.particles
-        # vertex=reco_vert_hotfix(i)
-
-        # inter=reco_vert_hotfix(interaction)
-        inter=self.reco_vertex
-
-        if True:
-            if True:
-                if type(self.hip)==TruthParticle:
-                    NON_PRIMARY_HIPS:list[Particle]=[p for p in self.particles if HM_pred_hotfix(p,self.hm_pred)==HIP_HM and (not is_primary_hotfix(p))]
-                    NON_PRIMARY_MIPS:list[Particle]=[p for p in self.particles if HM_pred_hotfix(p,self.hm_pred)==MIP_HM and (not is_primary_hotfix(p))]
-                    NON_PRIMARY_MICHLS:list[Particle]=[p for p in self.particles if HM_pred_hotfix(p,self.hm_pred) in [MICHL_SHP,LOWES_SHP,SHOWR_SHP] and (not is_primary_hotfix(p))]# and p.reco_ke<60] #
-                    NON_PRIMARY_SHWRS=[p for p in self.particles if HM_pred_hotfix(p,self.hm_pred) in [SHOWR_SHP,LOWES_SHP]  and (not is_primary_hotfix(p))] #
-                else:
-                    NON_PRIMARY_HIPS:list[Particle]=[p for p in self.particles if HM_pred_hotfix(p,self.hm_pred)==HIP_HM]
-                    NON_PRIMARY_MIPS:list[Particle]=[p for p in self.particles if HM_pred_hotfix(p,self.hm_pred)==MIP_HM]
-                    NON_PRIMARY_MICHLS:list[Particle]=[p for p in self.particles if HM_pred_hotfix(p,self.hm_pred) in [MICHL_SHP,LOWES_SHP,SHOWR_SHP]]# and p.reco_ke<60] #(not is_primary_hotfix(p))
-                    NON_PRIMARY_SHWRS:list[Particle]=[p for p in self.particles if HM_pred_hotfix(p,self.hm_pred) in [SHOWR_SHP,LOWES_SHP]] #and (not is_primary_hotfix(p))
-
-                # assert self.hip in interaction.particles,(self.hip.id,[i.id for i in particles],type(interaction))#[i.id for i in interaction.primary_particles]
-                
-                MIP_CHAINS:list[tuple[list[Particle],list[str]]]=[([i],[]) for i in copy.copy(NON_PRIMARY_MIPS)]
-
-                #TODO bring this back but fixed?
-                for i in MIP_CHAINS:
-                    done=False
-                    while done==False:
-                        done=True
-                        for j in NON_PRIMARY_MIPS:
-                            n1=norm3d(i[0][-1].end_point-j.start_point)
-                            if n1<min_len and n1<norm3d(i[0][-1].start_point-j.start_point) and j not in i:# and angle_between(i[-1].end_dir,j.start_dir)<np.pi/12:
-                                i[0].append(j)
-                                done=False
-                        # for j in NON_PRIMARY_HIPS:
-                        #     n1=norm3d(i[-1].end_point-j.start_point)
-                        #     if n1<min_len and n1<norm3d(i[-1].start_point-j.start_point) and j not in i:
-                        #         # i+=[j]
-                        #         MIP_CHAINS.remove(i)
-                        #         done=True
-                        #         break
-                            
-                
-                self.potential_kaons=[(self.hip,copy.deepcopy(MIP_CHAINS))]
-                done=False
-
-                # if self.hip.momentum[2]<0 and np.abs(self.hip.momentum[2])>norm3d(self.hip.momentum[:2]):
-                #     # self.pass_failure+=[c]
-                #     # passed=False
-                #     ship_copy=copy.deepcopy(self.hip)
-                # # if self.hip.momentum[2]<0:# and np.abs(self.hip.momentum[2])>norm3d(self.hip.momentum[:2]):
-                #     # ship_copy=copy.deepcopy(self.hip)
-                #     ship_copy.start_point,ship_copy.end_point=self.hip.end_point,self.hip.start_point
-                #     self.potential_kaons+=[[ship_copy,copy.copy(MIP_CHAINS),[]]]
-                #     assert np.isclose(ship_copy.start_point@self.hip.end_point,self.hip.end_point@self.hip.end_point),(ship_copy.start_point@self.hip.end_point,self.hip.end_point@self.hip.end_point)
-
-                
-                
-
-                while not done: #this loop goes over all of the hips connected to the end of the kaon, and constructs a hadronic group which hopefully contains the kaon end. 
-                    done=True
-                    # print("looking")
-                    
-                    for p in NON_PRIMARY_HIPS:
-                        # print([r[0] for r in self.potential_kaons])
-                        if p not in [r[0] for r in self.potential_kaons]:
-                            # print("getting here")
-                            for k in self.potential_kaons:
-                                # print(k[0])
-                                n1=norm3d(p.start_point-k[0].end_point)
-                                n2=norm3d(p.start_point-k[0].start_point)
-                                if n1<min_len and n1<n2:
-
-                                    self.potential_kaons+=[(p,copy.deepcopy(MIP_CHAINS))]
-                                    done=False
-                                    break
-                                # elif n2<min_len and n2<n1:
-                                #     self.potential_kaons+=[[p,copy.copy(MIP_CHAINS),[]]]
-                                #     done=False
-                                #     break
-
-                # ship_copy=copy.deepcopy(self.hip)
-                # if self.hip.momentum[2]<0:# and np.abs(self.hip.momentum[2])>norm3d(self.hip.momentum[:2]):
-                #     # ship_copy=copy.deepcopy(self.hip)
-                #     ship_copy.start_point,ship_copy.end_point=self.hip.end_point,self.hip.start_point
-                #     self.potential_kaons+=[[ship_copy,copy.copy(MIP_CHAINS),[]]]
-
-                # print()
-                
-                
-                # Geo = Geometry(detector="icarus")
-                # cath_pos=Geo.tpc[Geo.get_closest_module([[-.00001,0,0]])[0]].cathode_pos
-
-
-        # if type(self.hip)==RecoParticle:
-            
-
-            # if not self.is_flash_matched:
-            #     for v in self.fm_interactions:
-            #         # if np.isclose(norm3d(v[0]-inter),0): continue
-            #         if not v[1]: continue
-
-            #         # print("FM_interactions",v[0],self.reco_vertex)
-            #         # if i.id==interaction.id:
-            #             # continue
-            #         # if i.is_flash_matched:
-            #         d=norm3d(v[0]-inter)
-            #         if d<best_dist:
-            #             best_dist=d
-            #                 # closest_flash_matched_interaction=i
-            # # particles+=closest_flash_matched_interaction.particles
-            # # if reco_vert_hotfix(i)[2]<inter:
-            #     # vertex=reco_vert_hotfix(i)
-            # # else:
-
-            
-
-            
-            # assert best_dist!=0
-        # if self.is_flash_matched:
-            # print("its flashmatched")
-        # if not self.is_flash_matched:
-            # print("best_dist",best_dist,type(self.hip)==RecoParticle,inter)
-
-        
-        # hm_pred=self.hm_pred
-
+        if self.hip in self.particles:
+            self.hip=self.particles[h]
+        else:
+            self.hip=copy.deepcopy(self.hip)
 
 
         
+
+        self.pass_failure:list[str]=[]
+
+        if self.hip.reco_length>4 and is_contained(self.hip.start_point,margin=-5) and is_contained(self.hip.end_point,margin=-5) and len(self.hip.points)>=3: assert sum([p==self.hip for p in self.particles])==1,(sum([p==self.hip for p in self.particles]),sum([p.id==self.hip.id for p in self.particles]),self.hip.reco_length,len(self.hip.points),self.hip.pid,self.hip.shape)
+
+        for p in self.particles:
+            if p==self.hip:
+                assert p.is_primary==self.hip.is_primary
+        primary_hip=(self.hip.is_primary)
         
-        for c in cuts:
-            # if len(self.pass_failure)>=3: break
 
-            checked=False
-
-            if c=="Contained HIP":
-                checked=True
-                if not is_contained(self.hip.end_point,margin=1):
-                    self.pass_failure+=[c]
-                    #passed=False
-
-            elif c=="Connected Non-Primary MIP":
-                checked=True
-                for k in self.potential_kaons:
-                    for p in copy.copy(k[1]):
-                            # assert type(p)==list[Particle],(type(p),type[p[0]])
-                            # plen=np.sum([i.reco_length for i in p])
-
-                            # if plen>=40:
-                            #     mini_checked=True
-                            #     k[2]+=[[p,r]]
-                            #     k[1].remove(p)
-                            #     continue
-
-                            mip_start=p[0][0].start_point
-                            mip_end=p[0][-1].end_point
+        if type(self.hip)==RecoParticle and self.is_flash_matched:
 
 
+            MIPS_AND_MICHELS(self.particles)
+            MIPS_AND_MICHELS_2(self.particles,skip=[self.hip])
+            # CORRECT_BACKWARDS(self.particles,skip=[self.hip.id])
 
-                            n1=norm3d(mip_start-k[0].end_point)
-                            if (n1>min_len or n1>=norm3d(mip_start-k[0].start_point)):
-                                if len(self.pass_failure) or len(p[1]):
-                                # k[2]+=[[p,c]]
-                                    k[1].remove(p)
-                                else:
-                                    p[1].append(c)
-                if np.sum([len(k[1]) for k in self.potential_kaons])==0:
-                    self.pass_failure+=[c]
-                    #passed=False
-
-
-            elif c=="Contained MIP":
-                checked=True
-                for k in self.potential_kaons:
-                    for p in copy.copy(k[1]):
-                            # assert type(p)==list[Particle],(type(p),type[p[0]])
-                            # plen=np.sum([i.reco_length for i in p])
-
-                            # if plen>=40:
-                            #     mini_checked=True
-                            #     k[2]+=[[p,r]]
-                            #     k[1].remove(p)
-                            #     continue
-
-                            # mip_start=p[0].start_point
-                            mip_end=p[0][-1].end_point
-
-                            if not is_contained(mip_end,margin=1):
-                                # k[2]+=[[p,c]]
-                                if len(self.pass_failure) or len(p[1]):
-                                # k[2]+=[[p,c]]
-                                    k[1].remove(p)
-                                else:
-                                    p[1].append(c)
-                # print(np.sum([len(k[1]) for k in self.potential_kaons]))
-                if np.sum([len(k[1]) for k in self.potential_kaons])==0:
-                    self.pass_failure+=[c]
-                    #passed=False
-
-
-
-
-            
-
-            elif c=="Initial HIP":
-                checked=True
-                if HM_pred_hotfix(self.hip,self.hm_pred)!=HIP_HM and self.hip.pid not in  [3,4]:
-                    self.pass_failure+=[c]
-                    #passed=False
-
-            
-            elif c==rf"Primary $K^+$":
-                checked=True
-                # if type(interaction)==TruthInteraction:
-                if (not is_primary_hotfix(self.hip)) or norm3d(inter-self.hip.start_point)>5*min_len:# or HM_pred_hotfix(self.hip,hm_pred)!=HIP_HM:
-                    self.pass_failure+=[c]
-                    #passed=False
-                # else:
-                #     if not is_primary_hotfix(self.hip):#norm3d(self.hip.start_point-inter)>cuts[c] and 
-                #         self.pass_failure+=[c]
-                #         #passed=False
-
-            elif c=="Correct HIP TPC Assoc.":
-                checked=True
-                # if get_tpc_id(self.hip.start_point) not in set([i[1] for i in self.hip.sources]) and get_tpc_id(self.hip.end_point) not in set([i[1] for i in self.hip.sources]):#self.hip.module_ids:
-                if not self.hip.is_contained:
-                    
-                    self.pass_failure+=[c]
-                    #passed=False
-
-                    # if self.truth:
-                        # print("Correct HIP Module Assoc.",get_tpc_id(self.hip.start_point),get_tpc_id(self.hip.end_point),self.hip.sources)
-
-
-            elif c=="Kaon Len":
-                checked=True
-                if self.hip.reco_length<cuts[c]:
-                    self.pass_failure+=[c]
-                    #passed=False
-
-            elif c=="Valid Interaction":
-                checked=True
-                if type(self.hip)==TruthParticle:
-                    if self.truth_interaction_nu_id==-1:
-                        self.pass_failure+=[c]
-                        #passed=False
-                elif type(self.hip)==RecoParticle:
-                    # print()
-                    if not self.is_flash_matched:# and best_dist>cuts[c]:
-                        if self.truth: print("FAILED AT VALID INTERACTION")#,best_dist)
-                        self.pass_failure+=[c]
-                        #passed=False
-                else:
-                    raise Exception(type(self.hip))
+            self.particles:list[Particle]=[p for p in self.particles if (p.shape!=TRACK_SHP or p==self.hip or p.reco_length>min_len/2)]
                 
-
-            elif c=="Forward HIP":
-                checked=True
-                # if self.hip.momentum[2]<0 and np.abs(self.hip.momentum[2])>cuts[c]*norm3d(self.hip.momentum[:2]):
-                if angle_between(self.hip.momentum,np.array([0,0,1]))>cuts[c]:
-                    found_another=False
-                    for p in self.particles:
-                        if p.id!=self.hip.id and norm3d(p.start_point-self.hip.start_point)<min_len:
-                            found_another=True
-                            break
-                    if not found_another:
-                        self.pass_failure+=[c]
-                        #passed=False
-            #         ship_copy=copy.deepcopy(self.hip)
-            #     # if self.hip.momentum[2]<0:# and np.abs(self.hip.momentum[2])>norm3d(self.hip.momentum[:2]):
-            #         # ship_copy=copy.deepcopy(self.hip)
-            #         ship_copy.start_point,ship_copy.end_point=self.hip.end_point,self.hip.start_point
-            #         self.potential_kaons+=[[ship_copy,copy.copy(MIP_CHAINS),[]]]
-            #         assert np.isclose(ship_copy.start_point@self.hip.end_point,self.hip.end_point@self.hip.end_point),(ship_copy.start_point@self.hip.end_point,self.hip.end_point@self.hip.end_point)
-            elif c=="More Than Downgoing":
-                checked=True
-                ending=[]
-                starting=[]
+            if False:
+                LOOSE_MICHLS:list[Particle]=[p for p in self.particles if HM_pred_hotfix(p,self.hm_pred) in [MICHL_SHP,LOWES_SHP,SHOWR_SHP] and p.ke<50 and len(p.points)>3]#
+                # PROBABLE_MIPS:list[Particle]=[]
                 for p in self.particles:
-                    if norm3d(p.end_point-inter)<min_len/2:
-                        ending+=[p]
-                    if norm3d(p.start_point-inter)<min_len/2:
-                        starting+=[p]
-                    if len(ending)>1 or len(starting)>1:
-                        break
-                if len(starting)==1 and len(ending)==1:
-                    # if norm3d(starting[0].start_point-ending[0].end_point)<min_len:
-                    if np.abs(angle_between(starting[0].momentum,ending[0].end_dir)-np.pi/2)>np.pi/2-cuts[c][1] and np.abs(angle_between(starting[0].momentum,np.array([0,-1,0]))-np.pi/2)>np.pi/2-cuts[c][0]:
-                        self.pass_failure+=[c]
-                        #passed=False
-
-                elif len(starting)==1 and angle_between(starting[0].momentum,np.array([0,-1,0]))<cuts[c][0]:
-                    self.pass_failure+=[c]
-                    #passed=False
-                
-            elif c=="":
-                checked=True
-                # #passed=False
-
-                self.pass_failure+=[""]
-            
-            elif c=="MIP_CUTS":
-                checked=True
-
-                # Geo.define_containment_volumes(-5, mode=full_containment)
-                # conp=[p for p in particles if len(p.points)>=3 and is_contained(p.start_point,margin=-5,define_con=False) and (p.shape in [MICHL_SHP,SHOWR_SHP,LOWES_SHP,DELTA_SHP] or is_contained(p.end_point,margin=-5,define_con=False))]
-                # conp=[p for p in particles if len(p.points)>=3 and p.is_contained]
-                
-        
-                
-
-                for r in cuts[c]:
-                    if len(self.pass_failure)>=3: break
-
-                    mini_checked=False
-                    # skip_the_rest=False
-                    # for rr in cuts[c]:
-                        # if skip_the_rest and cuts[c]!="Single MIP Decay": continue
-                        # potk=deepcopy(self.potential_kaons)
-                    # found=False
-                    # if np.sum([len(k[1]) for k in self.potential_kaons])==0:
-                    #     mini_checked=True
-
-                    #TODO does this mip len thing actually do what I want????????
-                    for k in self.potential_kaons:#this loop looks for appropriate mips at one of the ends of the hadronic group
-                        for p in copy.copy(k[1]):
-                            # assert type(p)==list[Particle],(type(p),type[p[0]])
-                            plen=np.sum([i.reco_length for i in p[0]])
-
-                            # if plen>=40:
-                            #     mini_checked=True
-                            #     k[2]+=[[p,r]]
-                            #     k[1].remove(p)
-                            #     continue
-
-                            mip_start=p[0][0].start_point
-                            mip_end=p[0][-1].end_point
-                        # for p in NON_PRIMARY_MIPS:
-
-                            #NICE CHECK TODO assert np.all([HM_pred_hotfix(i,self.hm_pred)==MIP_HM for i in p])
-                            # if is_primary_hotfix(p):
-                            #     continue
-                            # if p in PK: continue
-                            # if HM_pred_hotfix(p,hm_pred)==HIP_HM and norm3d(p.start_point-k[0].end_point)<min_len:
-                            #     raise Exception("how",HM_pred_hotfix(p,hm_pred),[r[0].id for r in self.potential_kaons])
-                            # if HM_pred_hotfix(p,hm_pred)!=MIP_HM:
-                            #     continue
-                            # add_it=True
-
-
-                            # if r=="Connected Non-Primary MIP":
-                            #     mini_checked=True
-                            # #(norm3d(kk.start_point-self.hip.end_point)<=norm3d(kk.start_point-self.hip.start_point))
-                            #     n1=norm3d(mip_start-k[0].end_point)
-                            #     if (n1>min_len or n1>=norm3d(mip_start-k[0].start_point)):
-                            #         k[2]+=[[p,r]]
-                            #         k[1].remove(p)
-                                    
-                                    # add_it=False
-
-                            if r==r"HIP $K^+ or >0 Scatter$":
-                                mini_checked=True
-                                if k[0]==self.hip and self.hip.pid in [2,3]:
-                                    # k[2]+=[[p,r]]
-                                    if len(self.pass_failure) or len(p[1]):
-                                # k[2]+=[[p,c]]
-                                        k[1].remove(p)
-                                    else:
-                                        p[1].append(c)
-
-                                
+                    if p.pid in [MUON_PID,PION_PID]:
+                        if (np.sum(np.array([norm3d(p.start_point-m.start_point) for m in LOOSE_MICHLS])<10*min_len)>0
+                            and is_contained(p.start_point) and is_contained(p.end_point) 
+                            # and np.sum(np.array([norm3d(p.end_point-m.start_point) for m in LOOSE_MICHLS])<10*min_len)==0 
+                            and len([h for h in self.particles if (norm3d(h.start_point-p.start_point)<min_len or norm3d(h.end_point-p.start_point)<min_len) and h not in [p]])==np.sum(np.array([norm3d(p.start_point-m.start_point) for m in LOOSE_MICHLS])<min_len)
+                            and len([h for h in self.particles if (h.shape!=TRACK_SHP or h.reco_length>min_len) and (norm3d(h.start_point-p.end_point)<min_len or norm3d(h.end_point-p.end_point)<min_len) and h not in [p]])==1):
+                            flip_particle(p)
                             
+                            if p.is_matched and p.match_ids[0] in self.decay_mip_dict and p.reco_length>20:
+                                print("FLIPPED THE MIP for a SHOWER")
+                                tp=self.decay_mip_dict[p.match_ids[0]]
+                                if angle_between(p.start_point-p.end_point,tp.start_point-tp.end_point)<np.pi/2:
+                                    print("AND IT'S RIGHT NOW")
+                                else:
+                                    print("AND IT'S WRONG NOW")
+                            # if not p.is_primary:PROBABLE_MIPS+=[p]
+                        # elif (not np.any(np.array([norm3d(p.start_point-m.start_point) for m in STRICT_MICHLS])<3*min_len)) and np.any(np.array([norm3d(p.end_point-m.start_point) for m in STRICT_MICHLS])<3*min_len):
+                            # if not p.is_primary:PROBABLE_MIPS+=[p]
+                PRIMARY_ELECTRONS:list[Particle]=[p for p in self.particles if HM_pred_hotfix(p,self.hm_pred) in [SHOWR_SHP] and (is_primary_hotfix(p)) and p.ke>200]#
+                for p in self.particles:
+                    if p.pid in [MUON_PID,PION_PID,PROT_PID,KAON_PID]:
+                        if np.any(np.array([norm3d(p.end_point-m.start_point) for m in PRIMARY_ELECTRONS])<min_len) and not np.any(np.array([norm3d(p.start_point-m.start_point) for m in PRIMARY_ELECTRONS])<min_len):
+                            flip_particle(p)
+                            
+                            if p.is_matched and p.match_ids[0] in self.decay_mip_dict:
+                                print("FLIPPED THE MIP for a PRIMARY SHOWER")
+                                tp=self.decay_mip_dict[p.match_ids[0]]
+                                if angle_between(p.start_point-p.end_point,tp.start_point-tp.end_point)<np.pi/2:
+                                    print("AND IT'S RIGHT NOW")
+                                else:
+                                    print("AND IT'S WRONG NOW")
+                for p in self.particles:
+                    if p.pid in [PION_PID,PROT_PID,KAON_PID]:
+                        if np.any(np.array([norm3d(p.start_point-m.start_point) for m in PROBABLE_MIPS])<min_len) and not np.any(np.array([norm3d(p.end_point-m.start_point) for m in PROBABLE_MIPS])<min_len):
+                            flip_particle(p)
+                            
+                            if p.is_matched and p.match_ids[0] in self.kaon_path:
+                                print("FLIPPED THE HIP")
+                                tp=self.kaon_path[p.match_ids[0]]
+                                if angle_between(p.start_point-p.end_point,tp.start_point-tp.end_point)<np.pi/2:
+                                    print("AND IT'S RIGHT NOW")
+                                else:
+                                    print("AND IT'S WRONG NOW")
+                        # PROBABLE_MIPS+=[p]
+                    # elif (not np.any(np.array([norm3d(p.start_point-m.start_point) for m in STRICT_MICHLS])<3*min_len)) and np.any(np.array([norm3d(p.end_point-m.start_point) for m in STRICT_MICHLS])<3*min_len):
+                    #     PROBABLE_MIPS+=[p]
 
-                            #TODO allow mips at the end of the mip, and add the lengths
-                            #TODO add in counts for particles connecting at each end
+            done=False
+            while not done:
+                OBVIOUS_MUONS:list[Particle]=[p for p in self.particles if p.pid in [MUON_PID] and p!=self.hip]
+                PIONS=[p for p in self.particles if p.pid in [PION_PID] and p!=self.hip]
+                STRICT_MICHLS:list[Particle]=[p for p in self.particles if HM_pred_hotfix(p) in [MICHL_SHP,LOWES_SHP] and (not is_primary_hotfix(p))]#
+                done=True
+                for p1 in OBVIOUS_MUONS.copy():
+                    p1em=np.any(np.array([np.min(cdist([p1.end_point],m.points)) for m in STRICT_MICHLS])<2*min_len)
+                    p1sm=np.any(np.array([np.min(cdist([p1.start_point],m.points)) for m in STRICT_MICHLS])<2*min_len)
+                    for p2 in OBVIOUS_MUONS.copy()+PIONS:
 
-                            if r=="Michel Child":
-                                mini_checked=True
-                                mich_child=False 
-                                for other in NON_PRIMARY_MICHLS:
-                                    if other.reco_ke>80: continue
-                                    # if other==p[-1]:
-                                    #     continue
-                                        # raise Exception("How?",p[-1].id,p[-1].shape,other.id,other.shape)
-                                    # if norm3d(other.start_point-p.end_point)<min_len*5: #TODO this is due to a bug
-                                    if np.min(cdist(other.points, [mip_end]))<cuts[c][r][0] and np.min(cdist(other.points[:,1:], [mip_end[1:]]))<cuts[c][r][1] and norm3d(other.start_point-mip_end)<norm3d(other.start_point-mip_start):# and np.dot(other.start_point-mip_end,drift_dir_map[get_tpc_id(mip_end)])>-min_len:
-                                        mich_child=True
-                                        break
-                                if not mich_child:
-                                    # k[2]+=[[p,r]]
-                                    if len(self.pass_failure) or len(p[1]):
-                                # k[2]+=[[p,c]]
-                                        k[1].remove(p)
-                                    else:
-                                        p[1].append(c)
+                        if p1.id==p2.id: continue
+                        # if p1.pid!=MUON_PID and p2.pid!=MUON_PID:
+                            # continue
 
-                                    
+                        min_dist=np.min(cdist([p1.start_point,p1.end_point],[p2.start_point,p2.end_point]))
+                        if min_dist>min_len/2: continue
 
+                        
 
-                            if r==r"Low MIP len $\pi^0$ Tag":
-                                mini_checked=True
-                                # if p.reco_length!=-1:print(p.reco_length)
-
-                                
-                                has_pi0=(plen>=40)
-                                if not has_pi0:
-                                    for other in NON_PRIMARY_SHWRS:
-                                        if other.reco_ke<10: continue# i think the minimal energy of a photon from the pi0 is around 20MeV
-                                        if other.reco_ke>300: continue# i think the maximum energy is around 225 MeV
-                                        if (norm3d(other.start_point-mip_start)<cuts[c][r][0] 
-                                            # and norm3d(other.start_point-mip_end)>min_len 
-                                            and np.min(cdist(other.points, [mip_end]))>min_len
-                                            and impact_parameter(mip_start,other.start_point,other.momentum)<impact_parameter(self.hip.start_point,other.start_point,other.momentum)
-                                            and (impact_parameter(mip_start,other.start_point,other.momentum)<cuts[c][r][1])):#or angle_between(other.start_point-mip_start,other.momentum)<cuts[c][r][2])
-                                            # and cos_gamma_to_pip_bounds(other.reco_ke)[0]<np.cos(angle_between(other.start_point-mip_start,p[0].momentum)) and np.cos(angle_between(other.start_point-mip_start,p[0].momentum))<cos_gamma_to_pip_bounds(other.reco_ke)[1]):
-                                            # and abs((cos_gamma_to_E(mip_start,other.start_point,p[0].momentum)-other.reco_ke)/other.reco_ke)<cuts[c][r][2]):
-                                            has_pi0+=1 #TODO apparently a 3112 doesnt get a reco length?
-                                if not has_pi0:
-                                    # k[2]+=[[p,r]]
-                                    if len(self.pass_failure) or len(p[1]):
-                                # k[2]+=[[p,c]]
-                                        k[1].remove(p)
-                                    else:
-                                        p[1].append(c)
-
-                                    
-
-                            if r=="MIP Child At Most 1 Michel":
-                                mini_checked=True
-                                # for other in NON_PRIMARY_HIPS:
-                                check1=np.any([(norm3d(other.start_point-mip_end)<min_len)*(other.reco_length>min_len) for other in NON_PRIMARY_HIPS if other!=p[-1]])
-                                check2=np.any([(norm3d(other.start_point-mip_end)<min_len)*(other.reco_length>min_len) for other in NON_PRIMARY_MIPS if other!=p[-1]])
-                                if check1 or check2:
-
-                                    # k[2]+=[[p,r]]
-                                    if len(self.pass_failure) or len(p[1]):
-                                # k[2]+=[[p,c]]
-                                        k[1].remove(p)
-                                    else:
-                                        p[1].append(c)
-
-                                    
-                                    # add_it=False
-                                    
-                                
-                            # if r=="MIP Child At Most 1 Michel":
-                            #     mini_checked=True
-                            #     # for other in NON_PRIMARY_MIPS:
-                            #     if :
-                            #         k[2]+=[[p,r]]
-                            #         k[1].remove(p)
-                            #         # break
-                            #         # add_it=False
-                            #         # break
-                            #     # break
-                            if r=="Single MIP Decay":
-                                mini_checked=True
-                                if np.sum([(norm3d(other.start_point-mip_start)<min_len)*(other.reco_length>min_len)*(norm3d(other.start_point-mip_start)<norm3d(other.start_point-self.hip.start_point)) for other in NON_PRIMARY_MIPS+NON_PRIMARY_HIPS if other!=self.hip])>1:
-                                    # k[2]+=[[p,r]]
-                                    if len(self.pass_failure) or len(p[1]):
-                                # k[2]+=[[p,c]]
-                                        k[1].remove(p)
-                                    else:
-                                        p[1].append(c)
-
-                                # if other.shape==TRACK_SHP and norm3d(other.start_point-p.start_point)<min_len and other.reco_length>min_len:
-                                    # add_it=False
-                                    # ???????
-                                    
-                            if r=="Bragg Peak":
-                                mini_checked=True
-                                # close_voxels=[]
-                                found=False
-                                
-                                for i in self.particles:
-                                    if found: break
-                                    # assert type(i)==Particle
-                                    # print(i.num_voxels,len(i.points),len(i.depositions))
-                                    for v in range(len(i.points)):
-                                        if norm3d(i.points[v]-k[0].end_point)<min_len:
-                                            if i.depositions[v]>=cuts[c][r]:
-                                                found=True
-                                                break
-                                if not found:
-                                    # k[2]+=[[p,r]]
-                                    if len(self.pass_failure) or len(p[1]):
-                                # k[2]+=[[p,c]]
-                                        k[1].remove(p)
-                                    else:
-                                        p[1].append(c)
-
-                            if r=="Come to Rest":
-                                mini_checked=True
-                                ctr=come_to_rest(k[0])
-                                if ctr<cuts[c][r][0] or cuts[c][r][1]<ctr:
-                                    # k[2]+=[[p,r]]
-                                    if len(self.pass_failure) or len(p[1]):
-                                # k[2]+=[[p,c]]
-                                        k[1].remove(p)
-                                    else:
-                                        p[1].append(c)
-
-
-
-
-
-                            if r=="Valid MIP Len":
-                                mini_checked=True
-                                if not ((cuts[c][r]["mu_len"][0]<plen and plen<cuts[c][r]["mu_len"][1]) or 
-                                        (cuts[c][r]["pi_len"][0]<plen and plen<cuts[c][r]["pi_len"][1])):
-                                    # k[2]+=[[p,r]]
-                                    if len(self.pass_failure) or len(p[1]):
-                                # k[2]+=[[p,c]]
-                                        k[1].remove(p)
-                                    else:
-                                        p[1].append(c)
-
-
-                            if r=="Correct MIP TPC Assoc.":
-                                mini_checked=True
-                                if not p[0][0].is_contained or not p[0][-1].is_contained:
-                                    
-                                    # k[2]+=[[p,r]]
-                                    if len(self.pass_failure) or len(p[1]):
-                                # k[2]+=[[p,c]]
-                                        k[1].remove(p)
-                                    else:
-                                        p[1].append(c)
-
-                                    if self.truth:
-                                        print("Correct MIP Module Assoc.",get_tpc_id(p[0][0].start_point),set([i[1] for i in p[0][0].sources]),get_tpc_id(p[0][-1].start_point),set([i[1] for i in p[0][-1].sources]))
-
-
-                                    
-                                    # ?????????????
-
-                            # for other in particles: #this loop looks for mips or hips at the end of this mip and rejects it if so
-                                # if c in PK: continue
-                                
-
-                                # if other.shape in [MICHL_SHP,LOWES_SHP] and 
-                                    
-                                # elif c.orig_parent_id==p.orig_id and abs(p.pdg_code)==13 and abs(other.pdg_code)==11 and norm3d(other.start_point-p.end_point)<min_len:
-                                #         raise Exception(HM_pred_hotfix(other,hm_pred),other.shape,p.shape,norm3d(other.start_point-p.end_point))
-
-                                # if other.shape in [SHOWR_SHP,LOWES_SHP] and :
-                                    
-
-                                
-                                    
-                                
-                                    
-                                
-                            # if r=="Michel Child":
-                            #     checked=True
-                            #     if not mich_child:
-                            #         # add_it=False
+                        if abs(norm3d(p1.end_point-p2.start_point)-min_dist)<.001 and (angle_between(p1.end_point-p1.start_point,p2.end_point-p2.start_point)<np.pi/6):
+                            # and np.all(np.array([norm3d(o.end_point-(p1.end_point+p2.start_point)/2) for o in self.particles if o not in [p1,p2] and o.shape in [TRACK_SHP]])>min_len)
+                            # and np.all(np.array([norm3d(o.start_point-(p1.end_point+p2.start_point)/2) for o in self.particles if o not in [p1,p2] and o.shape not in [DELTA_SHP,LOWES_SHP]])>min_len)):
+                            
+                            if p1.is_matched and p2.is_matched:
+                                if p1.match_ids[0] in self.decay_mip_dict or p2.match_ids[0] in self.decay_mip_dict:
+                                    print("THESE TWO BELONG TOGETHER")
+                                    print("THE MATCH",p1.match_ids[0],p2.match_ids[0],p1.match_ids[0] in self.decay_mip_dict,p2.match_ids[0] in self.decay_mip_dict)
+                            merge_particles(p1,p2,self.particles)
+                            assert done
+                            done=False
+                            break
+                        
+                        if abs(norm3d(p1.start_point-p2.start_point)-min_dist)<.001 and (angle_between(p1.end_point-p1.start_point,p2.end_point-p2.start_point)>np.pi-np.pi/6):# or (not p1.is_primary) or (not p2.is_primary)):
 
                             
-                                    # add_it=False
-
+                            p2em=np.any(np.array([np.min(cdist([p2.end_point],m.points)) for m in STRICT_MICHLS])<2*min_len)
+                            p2sm=np.any(np.array([np.min(cdist([p2.start_point],m.points)) for m in STRICT_MICHLS])<2*min_len)
                             
-                                    # add_it=False
-                                    
-                                        
-                            # # if rounds[r]>=rounds["Contained MIP"] and not is_contained(p.points):
-                            # #     add_it=False
-                            #     # continue
-                            # found=found or add_it
+                            if p1em and not np.any([p1sm,p2em,p2sm]):
+                                flip_particle(p2)
+                                merge_particles(p2,p1,self.particles)
+                                assert done
+                                done=False
+                            # if not done:  
+                                break
 
-                            # if r==list(cuts[c].keys())[-2] and c==list(cuts[c].keys())[-2]:
-                            #     k[1]+=[(p,passed*add_it)]
-                        # valid=0
-                        # for k in potk:
-                        #     # if len(k[1])!=1: validlist+=[False]
-                        #     for kk in k[1]: valid+=1
-                                # if kk==-1:
-                                #     continue
-                                    # if self.truth: 
-                                    #     print("contained mips")
-                                    # if passed:
-                                    #     self.pass_failure="contained mips"
-                                    #     #passed=False
 
-                                # else:
-                                
-
-                        # if self.hip.reco_length<min_len:
-                        #     if self.truth: 
-                        #         print("kaon_too_short")
-                        #     if passed:
-                        #         self.pass_failure="kaon_too_short"
-                        #         #passed=False
-                        # if not found:?????????????
-
-                    if np.sum([len(k[1]) for k in self.potential_kaons])==0:
-                        mini_checked=True
-                        self.pass_failure+=[r]
-                        #passed=False
-                            # skip_the_rest=True       
-
-                    if not mini_checked:
-                        raise Exception(c,r, "not found in K+ MIP cuts")
                     
-            if not checked:
-                raise Exception(c,"not found in K+ cuts")
-            
+                            
+                    if not done:
+                            break
+                if not done:continue
+                    
+                if "Valid MIP Len" in cuts:
+                    pi_bounds=cuts["Valid MIP Len"]["pi_len"]
+                    mu_bounds=cuts["Valid MIP Len"]["mu_len"]
+                    # potential_mips=[p for p in self.particles if p.pid in [MUON_PID,PION_PID] and p!=self.hip and ((pi_bounds[0]<p.reco_length and p.reco_length<pi_bounds[1]) or (mu_bounds[0]<p.reco_length and p.reco_length<mu_bounds[1]))]
+                    potential_mips=[p for p in self.particles if p.pid in [MUON_PID,PION_PID]]
+                    for p1 in potential_mips:
+                        for p2 in potential_mips:
+                            if p1==p2:continue
+                            if p1==self.hip or p2==self.hip: continue
+                            if norm3d(p1.end_point-p2.start_point)>min_len:continue
+                            if (pi_bounds[0]<p1.reco_length+p2.reco_length<pi_bounds[1] or mu_bounds[0]<p1.reco_length+p2.reco_length<mu_bounds[1]) and angle_between(p1.end_dir,p2.start_dir)<np.pi/12:
+                                merge_particles(p1,p2,self.particles)
+                                assert done
+                                # print("trying")
+                                done=False
+                                break
+                        if not done:
+                            break      
+            assert done
 
-        # print("TRYING A KAON",self.truth)
+            rot_hip_mom=(NUMI_ROT@self.hip.start_dir)
+            if (rot_hip_mom[2]<0 and np.abs(rot_hip_mom[2])>np.linalg.norm(rot_hip_mom[:2])):# or (np.any(np.array([norm3d(self.hip.start_point-m.start_point) for m in PROBABLE_MIPS if m.id!=self.hip.id])<min_len) and not np.any(np.array([norm3d(self.hip.end_point-m.start_point) for m in PROBABLE_MIPS if m.id!=self.hip.id])<min_len)):# and self.hip.reco_length>25:#TODO fix this back if there is an obvious MIP next to it
+                    flip_particle(self.hip)
 
-        # # potential_kaons=[]
-        # done=False
-        # while not done:
-        #     done=True
-        #     for r in self.particles:
+                    for p in self.particles:
+                        if self.hip.id==p.id:
+                            # flip_particle(p)
+                            assert (NUMI_ROT@p.start_dir)[2]>=0
+        # if True:
+            if True:
+                done=False
+                max_step=1
+                while not done:
+                    done=True
+
+
+                    for p in [i for i in self.particles if i.shape==TRACK_SHP]:
+                        for q in [i for i in self.particles if i.shape==TRACK_SHP and i.id!=p.id]:
+                            # if p.shape==TRACK_SHP:
+
+                            if norm3d(p.end_point-q.end_point)<min_len/2:
+                                p_start_ending=0
+                                q_start_ending=0
+                                for r in [i for i in self.particles if i.shape==TRACK_SHP and i.id!=p.id and i.id!=q.id]:
+                                    if norm3d(r.end_point-q.start_point)<min_len/2:
+                                        q_start_ending+=1
+                                    if norm3d(r.end_point-p.start_point)<min_len/2:
+                                        p_start_ending+=1
+                                if p_start_ending and not q_start_ending:
+                                    if q!=self.hip:
+                                        flip_particle(q)
+                                        done=False
+
+
+                    for p in self.particles:
+                        if p.shape!=TRACK_SHP: continue
+                        if not p.is_primary: continue
+                        for q in self.particles:
+                            if q.shape!=TRACK_SHP:continue
+                            if not q.is_primary:
+                                est_end=(p.end_point+q.end_point)/2
+                                if norm3d(p.end_point-q.end_point)>min_len/2: continue
+                                # if (np.any(np.array([norm3d(o.end_point-est_end) for o in self.particles if o not in [p,q] and o.shape in [TRACK_SHP]])<min_len) or
+                                    # np.any(np.array([norm3d(o.start_point-est_end) for o in self.particles if o not in [p,q] and o.shape not in [DELTA_SHP,LOWES_SHP]])<min_len)): continue
+
+                                if q!=self.hip:
+                                    flip_particle(q)
+                                    done=False
+
+                    for p in self.particles:
+                        if p.shape!=TRACK_SHP: continue
+                        for q in self.particles:
+                            if q.shape!=TRACK_SHP:continue
+                            if q.is_primary:
+                                est_end=(p.end_point+q.start_point)/2
+
+                                if norm3d(p.end_point-q.start_point)>min_len/2: continue
+                                if (np.any(np.array([norm3d(o.end_point-est_end) for o in self.particles if o not in [p,q] and o.shape in [TRACK_SHP]])<min_len) or
+                                    np.any(np.array([norm3d(o.start_point-est_end) for o in self.particles if o not in [p,q] and o.shape not in [DELTA_SHP,LOWES_SHP]])<min_len)): continue
+                                
+
+
+                                if q!=self.hip:
+                                    q.is_primary=False
+                                    done=False
+                    # if False:
+                    for p in [j for j in self.particles if j.shape==TRACK_SHP and not j.is_primary and j.reco_length>min_len and j!=self.hip]:
+                        # other_tracks=
+                        end_near_end=False
+                        start_near_start=False
+                        for q in [j for j in self.particles if j.shape==TRACK_SHP and j.id!=p.id]:
+                            if norm3d(q.end_point-p.end_point)<min_len:
+                                end_near_end=True
+                            if norm3d(q.start_point-p.start_point)<min_len:
+                                start_near_start=True
+                            if end_near_end and start_near_start:
+                                flip_particle(p)
+
+                    for p in self.particles:
+                        p_rot=(NUMI_ROT@p.start_dir)
+                        if p.shape==TRACK_SHP and p.reco_length>70 and p_rot[2]<0 and np.abs(p_rot[2])>np.linalg.norm(p_rot[:2]):
+                            flip_particle(p)
+                            # for p in self.particles:
+                            if self.hip.id==p.id:
+                                # flip_particle(self.hip)
+                                # flip_particle(p)
+                                h_rot=(NUMI_ROT@self.hip.start_dir)
+                                assert h_rot[2]>=0,(p_rot,h_rot)
+                                done=False
+                    max_step-=1
+                    if not max_step:
+                        break
+                # p=None
+                # for p in [:
+                if self.hip.shape==TRACK_SHP and self.hip.reco_length>10 and False:
+                    dists_end = np.linalg.norm(self.hip.points - self.hip.end_point, axis=1)
+                    mask_end = dists_end< 10
+                    max_edep_end = np.median(self.hip.depositions[mask_end]*np.power(dists_end[mask_end],.42))
+
+
+                    dists_start = np.linalg.norm(self.hip.points - self.hip.start_point, axis=1)
+                    mask_start = dists_start< 10
+                    max_edep_start = np.median(self.hip.depositions[mask_start]*np.power(dists_start[mask_start],.42))
+
+                    if max_edep_start>1.5*max_edep_end:
+                        flip_particle(self.hip)
+
+                    
+                        if self.hip.is_matched and self.hip.match_ids[0] in self.kaon_path:
+                            print("FLIPPED THE HIP")
+                            if angle_between(self.hip.start_point-self.hip.end_point,self.kaon_path[self.hip.match_ids[0]].start_point-self.kaon_path[self.hip.match_ids[0]].end_point)<np.pi/2:
+                                print("AND IT'S RIGHT NOW")
+                            else:
+                                print("AND IT'S WRONG NOW",self.hip.is_matched and self.hip.match_ids[0] in self.kaon_path)
+
+        # if True:
+            ps=[(NUMI_ROT@p.start_dir)[2] for p in self.particles if p.is_primary]
+            if np.any(ps):
+                primary_start=min(ps)
+
+                for p in self.particles:
+                    if p.is_primary and (NUMI_ROT@p.start_dir)[2]>primary_start+100 and p!=self.hip:
+                        assert p.id!=self.hip.id
+                        p.is_primary=False
+                        # print(p.id,self.hip.id,self.event_number,p.is_primary,p.reco_ke,p.pdg_code,self.hip.is_primary)
+
+            if False:
+                if self.hip.reco_length>min_len:
+                    dists = np.linalg.norm(self.hip.points - self.hip.end_point, axis=1)
+                    slope, intercept = np.polyfit(dists ,self.hip.depositions, 1)
+                    if slope>.1:
+                        flip_particle(self.hip)
+                        if self.hip.is_matched and self.truth_hip is not None and self.truth_hip.pdg_code==321 and self.truth:
+                            print("CHANGED THE HIP DIRECTION WITH SLOPE",angle_between(self.hip.momentum,self.truth_hip.momentum)<np.pi/2,slope)
 
 
 
-        # for k in self.potential_kaons:
-        #     if k.proj_dist_from_hip<cuts["par_child_dist max"][0] and len([(p.dist_to_parent,p.angle_to_parent,p.proj_dist_to_parent) for p in k.k_extra_children if p.dist_to_parent<cuts["par_child_dist max"][0] and (p.child_hm_pred in [SHOWR_HM,MICHL_HM] or p.child.reco_length>min_len)])==0 and (Model=='2x2' or min(norm3d(k.hip.end_point-self.mip.start_point),norm3d(k.hip.start_point-self.mip.start_point))<cuts["par_child_dist max"][0]) and norm3d(k.hip.end_point-self.mip.start_point)<norm3d(k.hip.start_point-self.mip.start_point):
-        #         klens+=[k.dist_from_hip]
-        # for mich in self.potential_michels:
-        #     if mich.proj_dist_to_mich<cuts["par_child_dist max"][0]:
-        #         michlens+=[mich.dist_to_mich]
+            # if "Valid MIP Len" in cuts:
+            #     pi_bounds=cuts["Valid MIP Len"]["pi_len"]
+            #     mu_bounds=cuts["Valid MIP Len"]["mu_len"]
+            #     # potential_mips=[p for p in self.particles if p.pid in [MUON_PID,PION_PID] and p!=self.hip and ((pi_bounds[0]<p.reco_length and p.reco_length<pi_bounds[1]) or (mu_bounds[0]<p.reco_length and p.reco_length<mu_bounds[1]))]
+            #     potential_mips=[p for p in self.particles if p.pid in [MUON_PID,PION_PID]]
+            #     for 
+                # if len(potential_mips)==1:
+                #     if norm3d(potential_mips[0].start_point-self.hip.start_point)<min_len and norm3d(potential_mips[0].start_point-self.hip.end_point)>min_len and len([l for l in self.particles if norm3d(l.start_point-potential_mips[0].start_point)<min_len and len(l.points>3)])==2 and len([l for l in self.particles if norm3d(l.end_point-potential_mips[0].start_point)<min_len and len(l.points>3)])==0:
+                #         self.hip.start_point,self.hip.end_point=self.hip.end_point,self.hip.start_point
+                #         # raise Exception(ship_copy.momentum,type(ship_copy.momentum))
+                #         self.hip.start_dir=self.hip.start_dir*(-1)
+                #         if self.hip.is_matched and self.truth_hip is not None and self.truth_hip.pdg_code==321 and self.truth:
+                #             print("CHANGED THE HIP DIRECTION WITH LENGTH",angle_between(self.hip.momentum,self.truth_hip.momentum)<np.pi/2)
+
+
+                #     if norm3d(potential_mips[0].end_point-self.hip.end_point)<min_len and norm3d(potential_mips[0].start_point-self.hip.end_point)>min_len and len([l for l in self.particles if norm3d(l.start_point-potential_mips[0].start_point)<min_len and len(l.points>3)])==0 and len([l for l in self.particles if norm3d(l.end_point-potential_mips[0].start_point)<min_len and len(l.points>3)])==2:
+                #             potential_mips[0].start_point,potential_mips[0].end_point=potential_mips[0].end_point,potential_mips[0].start_point
+                #             # raise Exception(ship_copy.momentum,type(ship_copy.momentum))
+                #             potential_mips[0].start_dir=potential_mips[0].start_dir*(-1)
+                    
+
+            for p in self.particles:
+                if p.is_primary and p.shape in [SHOWR_SHP,DELTA_SHP,LOWES_SHP,MICHL_SHP] and p.reco_ke<100 and p!=self.hip:
+                    p.is_primary=False
+                    # if p==self.hip: raise Exception()
+
         
-        # childcut=[(p.dist_to_parent,p.angle_to_parent,p.proj_dist_to_parent) for p in self.mu_extra_children if p.dist_to_parent<cuts["par_child_dist max"][0] and p.child_hm_pred in [HIP_HM,MIP_HM] and ((direction_acos(p.child.reco_start_dir,self.mip.reco_end_dir)>np.pi/12 and p.child.reco_length>min_len) or (not is_contained(p.child.end_point,mode=full_containment)))]
-        # if len(childcut)!=0:
-        #     if self.truth: 
-        #         print("muon child",self.truth, childcut)
-        #     if passed:
-        #         self.pass_failure="muon child"
-                
-        #     passed=False
+
+            if True:
+                for p in self.particles:
+                    if not p.is_primary: continue
+                    if not p.shape==TRACK_SHP:continue
+                    for q in self.particles:
+                        if p==q: continue
+                        if not q.is_primary: continue
+                        if not q.shape==TRACK_SHP:continue
+                        if q==self.hip: continue
+                        if np.min(cdist([q.start_point,q.end_point],[p.start_point,p.end_point]))<2*min_len: continue
+                        if impact_parameter(p.start_point,q.start_point,q.start_dir)<5 and (NUMI_ROT@q.start_dir)[2]>10+(NUMI_ROT@p.start_dir)[2]:
+                            q.is_primary=False
+                            assert q.id!=self.hip.id
+
+        if True:    
+            new_vert=reconstruct_vertex_single(self.particles)
+            if new_vert is not None:
+                self.reco_vertex=new_vert
+
+        # if self.truth:
+            # print("help",self.hip.id,self.hip.is_primary)
+
+        assert (self.hip.is_primary)==primary_hip
+        K_plus_cut_cascade(self,cuts,self.hip,self.truth_interaction_nu_id,self.potential_kaons,self.pass_failure,self.decay_mip_dict,self.kaon_path)
+        assert (self.hip.is_primary)==primary_hip
         
+        assert self.hip.id==original_hip_id
+        # if self.truth:
+            # print(self.hip.id,self.hip.is_primary)
 
 
-        # if np.any([not is_contained(k[0].points,mode=full_containment) for k in self.potential_kaons]):
-        #     if self.truth: 
-        #         print("contained kaon")
-        #     if passed:
-        #         self.pass_failure="contained kaon"
-        #         passed=False
 
-        # if np.any([np.any(np.array(k[1])==-1) for k in self.potential_kaons]):
-        #     if self.truth: 
-        #         print("contained mips")
-        #     if passed:
-        #         self.pass_failure="contained mips"
-        #         passed=False
-
-        # if interaction.id!==-1:
-        #     if self.truth: 
-        #         print("neutrino interaction")
-        #     if passed:
-        #         self.pass_failure="neutrino interaction"
-        #         passed=False
-
-
-        
-
-        
-
-        # if not np.any(validlist):
-            # self.good_mu=self.potential_kaons[np.argwhere(validlist)[0][0]][0]
-
-            # assert type(self.good_mu)==Particle
-            # if self.truth: 
-            #     print("valid muon or pion decay",len(self.potential_kaons))#,[k[1:] for k in self.potential_kaons],validlist)
-            # if passed:
-            
-
-        # if self.hip.reco_ke<40:
-        #     # if self.truth: 
-        #     #     print("min KE",len(self.potential_kaons))#,[k[1:] for k in self.potential_kaons],validlist)
-        #     # if passed:
-        #     self.pass_failure+=["min KE"]
-        #     passed=False
-            
-
-        # if not is_contained(self.mip.points,mode=full_containment):
-        #     if len(klens)==0: 
-        #         if self.truth:
-        #             print("missing required kaon")
-        #         if passed:
-        #             self.pass_failure="missing required kaon"
-        #         passed=False
-        # else:
-        #     klens+=[0]
-
-        # if cuts["require_michel"] or self.require_michel:
-        #     if len(self.potential_michels)==0: 
-        #         if self.truth:
-        #             print("missing required michel")
-        #         if passed:
-        #             self.pass_failure="missing required michel"
-        #         passed=False
-        # else:
-        #     michlens+=[0]
-
-        # for k in klens:
-        #     # for mich in michlens:
-        #     #     estlen=self.mip_len_base+k+mich
-        #     #     if cuts["mu_len"][0]<estlen and estlen<cuts["mu_len"][1]:
-        #     #         passing_len=True
-        #     #         break
-        #     if passing_len: break
-        # if not passing_len:
-        #     if self.truth:
-        #         print("muon passing len",klens,michlens,self.mip_len_base)
-        #     if passed:
-        #         self.pass_failure="muon passing len"
-        #     passed=False
-        # return passed #TODO more cuts
-
-        # if self.pass_failure==["Valid MIP Len","Forward HIP"]:
-
-            # self.hip.start_point,self.hip.end_point=self.hip.end_point,self.hip.start_point
-            # print("start")
-            # print(self.hip.momentum)
-            # self.hip.momentum*=-1
-            # print(self.hip.momentum)
-            # print("end")
-            # passed=self.pass_cuts(cuts)
-            # self.hip.start_point,self.hip.end_point=self.hip.end_point,self.hip.start_point
-            # self.hip.momentum*=-1
-            # assert len(self.potential_kaons)
-            # return 
-
-        
+        if len(self.pass_failure) and primary_hip and self.pass_failure[0]=="Primary $K^+$":
+            raise Exception(self.hip.is_primary,primary_hip)
         return len(self.pass_failure)==1
 
 
@@ -1376,12 +803,6 @@ class Pred_Neut:
     #     along with the distance of closest approach of these lines (dist)
     dir_acos:float
         arccos of the direction with the beam direction
-    # hip_extra_children: list[ExtraChild]
-    #     extra children for the hip
-    # mip_extra_children: list[ExtraChild]
-    #     extra children for the mip
-    # extra_children: list[ExtraChild]
-    #     extra children for the neutral
     mip: Particle
         candidate pion
     hip: Particle
@@ -1394,9 +815,6 @@ class Pred_Neut:
     momenta: list[float]
     # coll_dist: list[float]
     dir_acos: float
-    # prot_extra_children: list[ExtraChild]
-    # pi_extra_children: list[ExtraChild]
-    # extra_children: list[ExtraChild]
     truth:bool
     mip: Particle
     hip: Particle
@@ -1415,7 +833,7 @@ class Pred_Neut:
         interactions: list[Interaction],
         hm_pred:dict[int,np.ndarray],
         truth:bool,
-        reason:bool,
+        reason:str,
         mass1:float,
         mass2:float,
         truth_particles:list[Particle],
@@ -1443,9 +861,18 @@ class Pred_Neut:
 
         self.event_number=ENTRY_NUM
         interaction=interactions[hip.interaction_id]
-        self.particles=[p for p in interaction.particles if len(p.points)>=3 and is_contained(p.start_point,margin=-5) and (p.shape in [MICHL_SHP,SHOWR_SHP,LOWES_SHP,DELTA_SHP] or is_contained(p.end_point,margin=-5))]
-        self.mip=mip
-        self.hip=hip
+        self.particles=copy.deepcopy([p for p in interaction.particles if (len(p.points)>=3 or p.shape in [MICHL_SHP]) and is_contained(p.start_point,margin=-5) and (p.shape in [MICHL_SHP,SHOWR_SHP,LOWES_SHP,DELTA_SHP] or is_contained(p.end_point,margin=-5))])
+        ids=[p.id for p in self.particles]
+        if mip.id in ids:
+            self.mip=self.particles[ids.index(mip.id)]
+        else:
+            self.mip=copy.deepcopy(mip)
+
+        if hip.id in ids:
+            self.hip=self.particles[ids.index(hip.id)]
+        else:
+            self.hip=copy.deepcopy(hip)
+
 
         # self.hm_pred=hm_pred
 
@@ -1500,8 +927,6 @@ class Pred_Neut:
         self.real_hip_momentum=hip.reco_momentum
         self.real_hip_momentum_reco=momentum_from_children_ke_reco(hip,particles,mass1,ignore=[mip])
         self.real_mip_momentum_reco=momentum_from_children_ke_reco(mip,particles,mass2,ignore=[hip])
-        # self.hip_children_contained_reco=all_children_contained_reco(hip,particles,ignore=[mip])
-        # self.mip_children_contained_reco=all_children_contained_reco(mip,particles,ignore=[hip])
         if self.truth and type(hip)==TruthParticle:
             assert type(hip)==TruthParticle
             self.real_hip_momentum=momentum_from_children_ke(hip,particles,mass1)
@@ -1511,12 +936,6 @@ class Pred_Neut:
         if self.truth and type(mip)==TruthParticle:
             assert type(mip)==TruthParticle
             self.real_mip_momentum=momentum_from_children_ke(mip,particles,mass2)
-
-        # self.vae = self.vertex_angle_error()
-        # self.mass2 = self.mass_2()
-        # self.decaylen = self.decay_len()
-        # self.momenta: list[float] = self.momenta_projections()
-        # self.coll_dist = collision_distance(hip,mip)
         
         if self.truth and type(mip)==TruthParticle:
             assert type(self.mip)==TruthParticle and type(self.hip)==TruthParticle
@@ -1555,102 +974,40 @@ class Pred_Neut:
 
         guess_start=(self.hip.start_point+self.mip.start_point)/2
 
+        MIPS_AND_MICHELS(self.particles)
+        for i in self.particles:
+            if i.id==self.mip.id:
+                self.mip=i
+            if i.id==self.hip.id:
+                self.hip=i
+
+        
+
+        new_vert=reconstruct_vertex_single(self.particles)
+        if new_vert is not None:
+            self.reco_vertex=new_vert
+
+
+
+
+
+
+
         # particles:list[Particle]=interaction.particles
 
         for p in self.particles:
             # if p.interaction_id!=hip.interaction_id: continue
             if p.id not in [self.mip.id,self.hip.id] and HM_pred_hotfix(p,self.hm_pred) in [SHOWR_HM,MIP_HM,HIP_HM,MICHL_HM]:
-                # self.prot_extra_children +=[ExtraChild(p,hip.end_point,hm_pred,hip)]
-                # self.pi_extra_children +=[ExtraChild(p,mip.end_point,hm_pred,mip)]
                 extra_children += [p]
                 if HM_pred_hotfix(p,self.hm_pred) in [MIP_HM,HIP_HM]: pot_parent+=[(p,False)]
-        # print("TRYING a lambda",self.truth)
-        # if not (is_contained(self.hip.points,mode=full_containment,margin=2) and is_contained(self.mip.points,mode=full_containment,margin=2)):
-        #     if self.truth: print("lam child containment issue")
-        #     if passed:
-        #         self.pass_failure="lam child containment issue"
-        #     passed=False
-
-        # if norm3d(self.mip.start_point-self.hip.start_point)>cuts["lam_cont_dist max"]:
-        #     if self.truth: print("lam child contained start distance max", norm3d(self.mip.start_point-self.hip.start_point))
-        #     if passed:
-        #         self.pass_failure="lam child contained start distance max"
-        #     passed=False
-
-        # if self.coll_dist[-1]>cuts["lam_proj_dist max"]:
-        #     if self.truth: print("lam_proj_dist max", self.coll_dist[-1])
-        #     if passed:
-        #         self.pass_failure="lam_proj_dist max"
-        #     passed=False
-
-        
-        
-
-        inter = self.reco_vertex
-
-        # best_dist=np.inf
-        # new_vertex=None
-
-        # if type(self.hip)==RecoParticle:
-        #     if not self.is_flash_matched:
-        #         for v in self.fm_interactions:
-        #             if not v[1]:
-        #                 continue
-        #             # if i.id==interaction.id:
-        #                 # continue
-        #             # if i.is_flash_matched:
-        #             # print(v[0],inter)
-
-        #             # if np.isclose(norm3d(v[0]-inter),0): continue
-        #             d=norm3d(v[0]-inter)
-
-                    
-        #             if d<best_dist:
-        #                 best_dist=d
-        #                 inter=v[0]
-        #                 # new_vertex
 
         # assert self.hip in particles,(self.hip.id,[i.id for i in particles])#,[i.id for i in interaction.primary_particles],type(interaction))
         # assert self.mip in particles,(self.mip.id,[i.id for i in particles])#,[i.id for i in interaction.primary_particles],type(interaction))
         michels:list[Particle]=[p for p in self.particles if p.shape in [MICHL_SHP,LOWES_SHP]]
-        assert norm3d(inter)>0,inter
-
-        
-
-        
-        ldl=float(norm3d(inter - guess_start))
+        # assert norm3d(self.reco_vertex)>0,inter
 
 
-        assert ldl<10000, (inter,guess_start)
-        # self.decaylen=ldl
-        if inter[2]<self.reco_vertex[2]:
-            self.reco_vertex=inter
-            # self.decaylen=float(norm3d(inter - guess_start))
-
-        
-        # guess_start = get_pseudovertex(
-        #     start_points=np.array([self.hip.start_point, self.mip.start_point], dtype=float),
-        #     directions=[self.hip.reco_start_dir, self.mip.reco_start_dir],
-        # )
-        # assert norm3d(guess_start-guess_start)==0
-        # dir1 = guess_start - inter
-        # vae=0
-        # if not np.isclose(ldl,0):
-        #     dir2 = self.real_hip_momentum_reco + self.real_mip_momentum_reco
-
-        #     ret = angle_between(dir1,dir2)
-        #     if passed: assert ret == ret,(self.hip.start_point,self.mip.start_point,self.hip.reco_start_dir,self.mip.reco_start_dir,ret,dir1,dir2)
-            
-        #     vae=self.decaylen*np.sin(min(ret,np.pi/2))
-
-            
-
-        # # vae1=0
-        # # if (not np.isclose(norm3d(dir1),0)) and (not np.isclose(norm3d(self.real_mip_momentum_reco),0)) and (not np.isclose(norm3d(self.real_hip_momentum_reco),0)):
-        # #     vae1=point_to_plane_distance(inter,guess_start,self.real_hip_momentum_reco,self.real_mip_momentum_reco)
-        # self.vae=vae
-
-        self.vae=impact_parameter(inter,guess_start,self.real_hip_momentum_reco + self.real_mip_momentum_reco)
+        self.vae=impact_parameter(self.reco_vertex,guess_start,self.real_hip_momentum_reco + self.real_mip_momentum_reco)
 
         #TODO make a cut of vae with other pid choices 
 
@@ -1666,7 +1023,7 @@ class Pred_Neut:
 
         for c in cuts:
 
-            if len(self.pass_failure)>=3: break
+            # if len(self.pass_failure)>=3: break
             checked=False
 
 
@@ -1674,19 +1031,19 @@ class Pred_Neut:
                 checked=True
                 if HM_pred_hotfix(self.mip,self.hm_pred)!=MIP_HM and self.mip.pid not in [PION_PID,PROT_PID]:#:# and 
                     self.pass_failure+=[c]
-                    #passed=False
+                    
                 if MIP_prot_KE_rat<min(.5,MIP_pi_KE_rat):
                     self.pass_failure+=[c]
-                    #passed=False
+                    
 
             if c=="HIP Child":
                 checked=True
                 if HM_pred_hotfix(self.hip,self.hm_pred)!=HIP_HM and self.hip.pid not in [PION_PID,PROT_PID]:#:# and s
                     self.pass_failure+=[c]
-                    #passed=False
+                    
                 # if HIP_pi_KE_rat<min(.5,HIP_prot_KE_rat):
                 #     self.pass_failure+=[c]
-                #     #passed=False
+                #     
 
                     # PROT_PID
 
@@ -1697,12 +1054,12 @@ class Pred_Neut:
                         # if self.truth: print("nonprimary hip/mip", norm3d(self.mip.start_point-self.hip.start_point))
                         # if passed:
                         self.pass_failure+=[c]
-                        #passed=False
+                        
                 
                 elif type(self.hip)==RecoParticle:
                     if self.hip.is_primary or self.mip.is_primary:#or HM_pred_hotfix(self.hip,self.hm_pred)!=HIP_HM or HM_pred_hotfix(self.mip,self.hm_pred)!=MIP_HM:
                         self.pass_failure+=[c]
-                        #passed=False
+                        
                 else:
                     raise Exception()
 
@@ -1712,14 +1069,14 @@ class Pred_Neut:
                     # assert type(interaction)==TruthInteraction
                     if self.truth_interaction_nu_id==-1:
                         self.pass_failure+=[c]
-                        #passed=False
+                        
 
 
                 elif type(self.hip)==RecoParticle:
                     if not self.is_flash_matched:# and best_dist>cuts[c]:
                         if self.truth: print("FAILED AT VALID INTERACTION")#,best_dist)
                         self.pass_failure+=[c]
-                        #passed=False
+                        
                 else:
                     raise Exception()
                 
@@ -1727,7 +1084,31 @@ class Pred_Neut:
                 checked=True
                 if self.hip.pid in [MUON_PID,PION_PID] and self.mip.pid in [KAON_PID,PROT_PID]:
                     self.pass_failure+=[c]
-                    #passed=False
+                    
+
+
+            if c=="Proj Max HIP-MIP Sep.":
+                checked=True
+                # if norm3d(self.mip.start_point-self.hip.start_point)>cuts[c]:
+                # if closest_distance(self.mip.start_point, self.mip.momentum, self.hip.start_point, self.hip.momentum)>cuts[c] or not np.isclose(np.linalg.norm(self.hip.start_point-self.mip.start_point),np.min(cdist([self.hip.start_point,self.hip.end_point] ,[self.mip.start_point,self.mip.end_point]))):
+
+                if closest_distance(self.mip.start_point, self.mip.momentum, self.hip.start_point, self.hip.momentum)>cuts[c]:
+                # if np.min(cdist([self.hip.start_point,self.hip.end_point] ,[self.mip.start_point,self.mip.end_point]))>cuts[c]:
+                    # if self.truth: print("Max HIP/MIP Sep.", norm3d(self.mip.start_point-self.hip.start_point))
+                    # if passed:
+                    self.pass_failure+=[c]
+
+
+            if c=="Starts Closest":
+                checked=True
+                # if norm3d(self.mip.start_point-self.hip.start_point)>cuts[c]:
+                # if closest_distance(self.mip.start_point, self.mip.momentum, self.hip.start_point, self.hip.momentum)>cuts[c] or :
+
+                if not np.isclose(np.linalg.norm(self.hip.start_point-self.mip.start_point),np.min(cdist([self.hip.start_point,self.hip.end_point] ,[self.mip.start_point,self.mip.end_point]))):
+                # if np.min(cdist([self.hip.start_point,self.hip.end_point] ,[self.mip.start_point,self.mip.end_point]))>cuts[c]:
+                    # if self.truth: print("Max HIP/MIP Sep.", norm3d(self.mip.start_point-self.hip.start_point))
+                    # if passed:
+                    self.pass_failure+=[c]
 
 
 
@@ -1735,12 +1116,13 @@ class Pred_Neut:
             if c=="Max HIP-MIP Sep.":
                 checked=True
                 # if norm3d(self.mip.start_point-self.hip.start_point)>cuts[c]:
-                if closest_distance(self.mip.start_point, self.mip.momentum, self.hip.start_point, self.hip.momentum)>cuts[c] or not np.isclose(np.linalg.norm(self.hip.start_point-self.mip.start_point),np.min(cdist([self.hip.start_point,self.hip.end_point] ,[self.mip.start_point,self.mip.end_point]))):
+
+                if norm3d(self.mip.start_point-self.hip.start_point)>cuts[c]:
                 # if np.min(cdist([self.hip.start_point,self.hip.end_point] ,[self.mip.start_point,self.mip.end_point]))>cuts[c]:
                     # if self.truth: print("Max HIP/MIP Sep.", norm3d(self.mip.start_point-self.hip.start_point))
                     # if passed:
                     self.pass_failure+=[c]
-                    #passed=False
+                    
 
             if c=="No HIP or MIP Michel":
                 checked=True
@@ -1748,7 +1130,7 @@ class Pred_Neut:
                     if norm3d(self.mip.end_point-p.start_point)<cuts[c] or norm3d(self.hip.end_point-p.start_point)<cuts[c]:
                     # if np.min(cdist(p.points, [self.mip.end_point]))<cuts[c]:
                         self.pass_failure+=[c]
-                        #passed=False
+                        
                         break
                 
             if c=="Impact Parameter":
@@ -1757,35 +1139,35 @@ class Pred_Neut:
                     # if self.truth: print("VAE max", vae)
                     # if passed:
                     self.pass_failure+=[c]
-                    #passed=False
+                    
 
             if c=="Min Decay Len":
                 checked=True
-                if ldl<cuts[c]:
+                if float(norm3d(self.reco_vertex - guess_start))<cuts[c]:
                     # if self.truth: print("minimum decay len")
                     # if passed:
                     self.pass_failure+=[c]
-                    #passed=False
+                    
 
             #TODO check if one of the particles has csda per whatever match the wrong one of proton or pion
 
 
             if c=="Parent Proximity":
                 checked=True
-                start_to_int=norm3d(guess_start-inter)
+                start_to_int=norm3d(guess_start-self.reco_vertex)
                 for p in pot_parent:
-                    if norm3d(p[0].start_point-inter)>2*min_len:
+                    if norm3d(p[0].start_point-self.reco_vertex)>2*min_len:
                         continue
                     # est_decay=(self.mip.start_point+self.hip.start_point)/2
-                    if (norm3d(p[0].end_point-inter)>=start_to_int and 
-                        norm3d(p[0].start_point-inter)>=start_to_int):continue
+                    if (norm3d(p[0].end_point-self.reco_vertex)>=start_to_int and 
+                        norm3d(p[0].start_point-self.reco_vertex)>=start_to_int):continue
                     if norm3d(p[0].end_point-guess_start)<=min_len or norm3d(p[0].end_point-self.hip.start_point)<=min_len/2 or norm3d(p[0].end_point-self.mip.start_point)<=min_len/2:
-                        # norm3d(p[0].end_point-inter)<= norm3d(self.hip.start_point-inter)+min_len and
-                        # norm3d(p[0].end_point-inter)<= norm3d(self.mip.start_point-inter))+min_len:
+                        # norm3d(p[0].end_point-self.reco_vertex)<= norm3d(self.hip.start_point-self.reco_vertex)+min_len and
+                        # norm3d(p[0].end_point-self.reco_vertex)<= norm3d(self.mip.start_point-self.reco_vertex))+min_len:
                         # if self.truth: print("parent proximity")
                         # if passed:
                         self.pass_failure+=[c]
-                        #passed=False
+                        
                         break
                     
             # if c==""
@@ -1798,23 +1180,23 @@ class Pred_Neut:
                 for p in extra_children:
                     # if is_primary_hotfix(p.child): continue
                     child_to_start=norm3d(p.start_point-guess_start)
-                    if child_to_start>=min(min_len,norm3d(p.start_point-inter)):
+                    if child_to_start>=min(min_len,norm3d(p.start_point-self.reco_vertex)):
                         continue
                     
                     if (child_to_start>=hip_end_gs or
                         child_to_start>=mip_end_gs):continue
                     local_child_count+=1
                     
-                    # if (child_to_start<=min(min_len,norm3d(p.child.start_point-inter))):
+                    # if (child_to_start<=min(min_len,norm3d(p.child.start_point-self.reco_vertex))):
                         # if self.truth: print("extra child")
                         # if passed:
                     self.pass_failure+=[c]
-                    #passed=False
+                    
                     break
                 # if local_child_count>=2 and c not in self.pass_failure:
                 #     raise Exception()
                 #     self.pass_failure+=[c]
-                #     #passed=False
+                #     
 
 
             if c==rf"Even # Primary $\gamma$":
@@ -1825,17 +1207,14 @@ class Pred_Neut:
                     #     print("odd photon cut")
                     # if passed:
                     self.pass_failure+=[c]
-                    #passed=False
+                    
 
             if c=="Valid Len":
                 checked=True
                 assert type(self.hip)==RecoParticle
                 if self.hip.reco_length<=cuts[c] and self.mip.reco_length<=cuts[c]:
                     self.pass_failure+=[c]
-                    #passed=False
-
-
-
+                    
 
             if c=="":
                 checked=True
@@ -1843,154 +1222,7 @@ class Pred_Neut:
             
             if not checked:
                 raise Exception(c,"not found in lam cuts")
-
-
-        # if not self.hip_children_contained_reco or not self.mip_children_contained_reco:
-        #     if self.truth: print("prot or pi containment")
-        #     if passed:
-        #         self.pass_failure="prot or pi containment"
-        #     passed=False
-
-        # assert is_contained(interaction.vertex,mode=full_containment)
-
-        # if not is_contained(inter,mode=full_containment):
-        #     if self.truth: print("vertex OOB")
-        #     if passed:
-        #         self.pass_failure="vertex OOB"
-        #     passed=False
-
         
-        # assert norm3d(inter)<np.inf,inter
-
-        # if norm3d(inter)==np.inf:
-        #     if self.truth: print("prot or pi containment")
-        #     if passed:
-        #         self.pass_failure="prot or pi containment"
-        #     passed=False
-
-        # if momentum_from_children_ke_reco(self.hip,particles,KAON_MASS)
-
-        # print(inter)
-        
-        
-        # # print([(p.dist_to_parent,p.angle_to_parent) for p in self.prot_extra_children if p.dist_to_parent<cuts["par_child_dist max"][0]])
-        # childcut=[(p.dist_to_parent,p.angle_to_parent,p.proj_dist_to_parent,p.child.id) for p in self.prot_extra_children if p.dist_to_parent<cuts["par_child_dist max"][0] and ((p.child_hm_pred==HIP_HM and p.child.reco_length>min_len and direction_acos(p.child.reco_start_dir,self.hip.reco_end_dir)>np.pi/12) or (p.child_hm_pred==MIP_HM and p.child.reco_length>min_len) or (not is_contained(p.child.points,mode=full_containment) and p.child_hm_pred in [HIP_HM,MIP_HM]))]
-        # if len(childcut)!=0:
-        #     if self.truth: print("proton child particle", childcut)
-        #     if passed:
-        #         self.pass_failure="proton child particle"
-        #     passed=False
-
-        
-        # childcut=[(p.dist_to_parent,p.angle_to_parent,p.proj_dist_to_parent,p.child.id) for p in self.pi_extra_children if p.dist_to_parent<cuts["par_child_dist max"][0] and ((p.child_hm_pred==MIP_HM and p.child.reco_length>min_len and direction_acos(p.child.reco_start_dir,self.mip.reco_end_dir)>np.pi/12) or (p.child_hm_pred==HIP_HM and p.child.reco_length>min_len) or (not is_contained(p.child.points,mode=full_containment) and p.child_hm_pred in [HIP_HM,MIP_HM]))]#or p.child_hm_pred in [SHOWR_HM,MICHL_HM]
-        # # childcut2=[(p.dist_to_parent,p.angle_to_parent,p.proj_dist_to_parent,p.child.reco_length) for p in self.pi_extra_children if p.dist_to_parent<cuts["par_child_dist max"][0] and ((direction_acos(p.child.reco_start_dir,self.mip.reco_end_dir)>np.pi/12 and p.child_hm_pred==MIP_HM and p.child.reco_length>min_len))]#or p.child_hm_pred in [SHOWR_HM,MICHL_HM]
-        # if len(childcut)!=0:
-        #     # if len(childcut2)>0:print("dcut2",childcut2)
-        #     if self.truth: print("pion child particle", childcut)
-        #     if passed:
-        #         self.pass_failure="pion child particle"
-        #     passed=False
-
-        # if self.mip.reco_length<min_len:
-        #     if self.truth: print("mip len")
-        #     if passed:
-        #         self.pass_failure="mip len"
-        #     passed=False
-
-        # if self.hip.reco_length<min_len:
-        #     if self.truth: print("hip len")
-        #     if passed:
-        #         self.pass_failure="hip len"
-        #     passed=False
-
-
-        
-
-        
-
-        
-
-
-        
-
-
-
-        
-
-
-        
-        # base_len=self.decaylen*np.sin(min(self.vae,np.pi/2))
-        # if vae1>cuts["VAE max new"]:
-        #     # if self.truth: print("VAE max", vae)
-        #     # if passed:
-        #     self.pass_failure+=["Perp. Impact Parameter"]
-        #     passed=False
-
-        # if ldl>cuts["lam_decay_len_max"]:
-        #     if self.truth: print("decay len max")
-        #     if passed:
-        #         self.pass_failure="decay len max"
-        #     passed=False
-
-        # mom_norm=norm3d(self.real_hip_momentum_reco + self.real_mip_momentum_reco)
-        # tau=ldl/100/(2.998e8)*LAM_MASS/mom_norm*10**9
-        # if tau>cuts["tau_max"]:
-        #     if self.truth: print("tau cut")
-        #     if passed:
-        #         self.pass_failure="max tau"
-        #     passed=False
-
-        
-
-        # if (interaction.primary_particle_counts[PHOT_PID]%2==1 and 
-        #     interaction.primary_particle_counts[MUON_PID]<=2 and 
-        #     interaction.primary_particle_counts[PROT_PID]<=1 and 
-        #     interaction.primary_particle_counts[KAON_PID]<=1
-        #     and "supress_single_photon" not in cuts):
-
-
-        # if np.dot(dir1,self.hip.momentum)<0 and np.dot(dir1,self.mip.momentum)<0 and norm3d(dir1)>1:
-        #     self.pass_failure+=[r"Valid $\Lambda$ Direction"]
-        #     passed=False
-
-
-        
-
-        # for p in self.pot_parent:
-        #     # est_decay=(self.mip.start_point+self.hip.start_point)/2
-        #     v1=guess_start-p[0].end_point
-        #     if norm3d(p[0].end_point-inter)>=norm3d(guess_start-inter):continue
-        #     # if 
-        #     if p[0].is_primary and np.dot(p[0].reco_end_dir,v1)>norm3d(v1)*norm3d(p[0].reco_end_dir)*np.cos(np.pi/8):
-        #         # if self.truth: print("primary colinear parent")
-        #         # if passed:
-        #         self.pass_failure+=["Primary Colinear Parent"]
-        #         passed=False
-        #         break
-
-        
-
-        # interaction.flas
-
-        
-
-        #####
-        #TODO decay time cut 
-        ######
-
-        # if self.momenta[0]>cuts["lam_pt max"]*LAM_PT_MAX:
-        #     if self.truth: print("pt max", self.momenta[0])
-        #     if passed:print("FAILED AT lam_pt max",self.truth)
-        #     passed=False
-        
-
-        
-        # masscut=abs((self.lam_mass2-PION_MASS**2-PROT_MASS**2)/(LAM_MASS**2-PION_MASS**2-PROT_MASS**2)-1)
-        # if masscut>cuts["lam_percent_error_mass"]:
-        #     if self.truth: print("mass", masscut)
-        #     if passed:print("FAILED AT mass",self.truth,masscut)
-        #     passed=False
-        # # return True
         
         return len(self.pass_failure)==1
     @property
@@ -2033,37 +1265,6 @@ class Pred_Neut:
         )
         return mass2
     
-    # def vertex_angle_error(self) -> float:
-    #     """
-    #     Returns angle between the line constructed from the momenta of the hip and mip and
-    #     the line constructed from the interaction vertex and the decay point
-
-    #     Returns
-    #     -------
-    #     float
-    #         distance from interaction vertex to line consructed from the momenta of the hip and mip
-    #     """
-
-    #     inter = reco_vert_hotfix(interaction)
-    #     # guess_start = get_pseudovertex(
-    #     #     start_points=np.array([self.hip.start_point, self.mip.start_point], dtype=float),
-    #     #     directions=[self.hip.reco_start_dir, self.mip.reco_start_dir],
-    #     # )
-    #     guess_start=(self.hip.start_point+self.mip.start_point)/2
-    #     assert norm3d(guess_start-guess_start)==0
-    #     dir1 = guess_start - inter
-    #     if np.isclose(norm3d(dir1),0):
-    #         return 0
-
-    #     dir2 = self.real_hip_momentum_reco + self.real_mip_momentum_reco
-
-    #     if norm3d(dir2) == 0:
-    #         return np.nan
-    #     ret = np.arccos(
-    #         np.dot(dir1, dir2) / norm3d(dir1) / norm3d(dir2)
-    #     )
-    #     assert ret == ret,(self.hip.start_point,self.mip.start_point,self.hip.reco_start_dir,self.mip.reco_start_dir,ret,np.dot(dir1, dir2) , norm3d(dir1) , norm3d(dir2),np.dot(dir1, dir2) / norm3d(dir1) / norm3d(dir2))
-    #     return ret
     
     # def momenta_projections(self) -> list[float]:
     #     """
@@ -2112,50 +1313,7 @@ class Pred_Neut:
     #     return [p1_transv, p2_transv, p1_long, p2_long]
 
 
-#TODO This may be used for the CCNC separation
-class PrimaryMIP:
-    # truth:bool
-    # mip:Particle
-
-    # true_signal:bool
-
-    def __init__(
-        self,
-        # pot_k: PotK,
-        # K_hip: Particle,
-        particles: list[Particle],
-        # interactions: list[Interaction],
-        hm_pred:dict[int,np.ndarray],
-
-    ):
-        """
-        Initialize with all of the necessary particle attributes
-
-        Parameters
-        ----------
-        ?????
-        """
-
-        # self.mip_len_base=mip.reco_length
-        # self.mu_hm_acc = hm_acc[mip.id]
-        # self.potential_michels=[]
-        self.primarymips={}
-        for p in particles:
-            if p.interaction_id not in self.primarymips:
-                self.primarymips[p.interaction_id]={}
-            if HM_pred_hotfix(p,hm_pred)!=MIP_HM: continue
-            if not is_primary_hotfix(p): continue
-            self.primarymips[p.interaction_id][p.id]=[p,True]
-        for t in particles:
-            if HM_pred_hotfix(t,hm_pred) not in [HIP_HM,MIP_HM]: continue
-            for pid in self.primarymips[t.interaction_id]:
-                if norm3d(self.primarymips[t.interaction_id][pid][0].end_point-t.start_point)<min_len:
-                    self.primarymips[t.interaction_id][pid][1]=False
-        
-            
-
-
-def is_contained(pos: np.ndarray, mode: str =full_containment, margin: float = 3,define_con=True) -> bool:
+def is_contained(pos: np.ndarray, mode: str =full_containment, margin:float|list[list[float]]|list[list[int]]|np.ndarray= 3,define_con=True) -> bool:
     """
     Checks if a point is near dead volume of the detector
     ----------
@@ -2200,12 +1358,6 @@ def HIPMIP_pred(particle: Particle, sparse3d_pcluster_semantics_HM: np.ndarray,p
     int
         Semantic segmentation prediction including HIP/MIP for a cluster
     """
-    # if len(particle.depositions) == 0:
-        # raise ValueError("No voxels")
-    
-
-    
-    # assert np.max(idx)<len(perm),(np.max(idx),len(perm))
 
     idx=particle.index
 
@@ -2230,9 +1382,6 @@ def HIPMIP_pred(particle: Particle, sparse3d_pcluster_semantics_HM: np.ndarray,p
         # HM_Pred = sparse3d_pcluster_semantics_HM[perm[particle.index], -1]
         # print(HM_Pred,type(HM_Pred))
     return np.bincount(HM_Pred.astype(np.int64),minlength=HIP_HM+1)#st.mode(HM_Pred).mode
-
-    
-
 
 # def HIPMIP_acc(particle: Particle, sparse3d_pcluster_semantics_HM: np.ndarray,perm=None,mode=True) -> float:
 #     """
@@ -2272,28 +1421,6 @@ def HIPMIP_pred(particle: Particle, sparse3d_pcluster_semantics_HM: np.ndarray,p
 
 #     pred = st.mode(HM_Pred).mode
 #     return Counter(HM_Pred)[pred] / len(HM_Pred) if len(HM_Pred)!=0 else 0
-
-
-# def direction_acos(momenta: np.ndarray, direction=np.array([0.0, 0.0, 1.0])) -> float:
-#     """
-#     Returns angle between the beam-axis (here assumed in z) and the particle object's start direction
-
-#     Parameters
-#     ----------
-#     momenta : np.ndarray[float]
-#         Momenta of the particle
-#     direction : np.ndarray[float]
-#         Direction of beam
-
-#     Returns
-#     -------
-#     float
-#         Angle between particle direction and beam
-#     """
-#     assert np.isclose(norm3d(momenta),1),norm3d(momenta)
-#     assert np.isclose(norm3d(direction),1),norm3d(direction)
-
-#     return np.arccos(np.dot(momenta, direction))
 
 
 # def collision_distance(particle1: Particle, particle2: Particle,orientation:list[str]=["start","start"]):
@@ -2409,10 +1536,8 @@ def HIPMIP_pred(particle: Particle, sparse3d_pcluster_semantics_HM: np.ndarray,p
 
 
 def come_to_rest(p:Particle,mass=KAON_MASS)->float:
-    # if not is_contained(p.points,mode=full_containment,margin=0):return False
-    # if not is_contained(p.points,mode=full_containment,margin=0):
-    # print(p.reco_length)
     p_csda=csda_ke_lar(p.reco_length, mass)
+    assert type(p_csda)==float
     # if not p_csda>0: return False
     # if (not p.calo_ke>0) and (not p.mcs_ke>0): return False
 
@@ -2433,15 +1558,6 @@ def all_children_reco(p:Particle,particles:list[Particle],dist=min_len/2,ignore=
                     children+=[pd]
                     done=False
     return children
-
-# def all_children_contained_reco(p:Particle,particles:list[Particle],mode=full_containment,ignore=[])->bool:
-#     ad=all_children_reco(p,particles,ignore=ignore)
-#     assert p in ad
-#     contained=True
-#     for d in ad:
-#         # if id not in larcv_id_to_spine_id: continue
-#         contained*=is_contained(d.points,mode=mode)
-#     return bool(contained)
 
 def momentum_from_children_ke_reco(p:Particle,particles:list[Particle],mass,ignore=[])->float:
     # print("running mfdke")
@@ -2475,17 +1591,6 @@ def all_children(p:TruthParticle,particles:list[TruthParticle])->list[TruthParti
     # start=
     return out
 
-# def all_children_contained(p_tid:int,particles:list[TruthParticle],mode=full_containment)->bool:
-#     # ad:list[TruthParticle]=all_children(p,particles)
-#     # assert p in ad
-#     contained=True
-#     for d in particles:
-#         if d.ancestor_track_id!=p_tid:continue
-#         if d.parent_pdg_code==2112:continue
-#         # if id not in larcv_id_to_spine_id: continue
-#         contained*=is_contained(d.points,mode=mode)
-#     return bool(contained)
-
 def momentum_from_children_ke(p:TruthParticle,particles,mass)->float:
     # print("running mfdke")
     ad:list[TruthParticle]=all_children(p,particles)
@@ -2493,20 +1598,6 @@ def momentum_from_children_ke(p:TruthParticle,particles,mass)->float:
 
     tke=sum([a.calo_ke for a in ad])
     return np.sqrt((tke+mass)**2-mass**2)*p.reco_start_dir
-
-
-def point_to_plane_distance(p, p0, v1, v2):
-    # Normal vector to the plane
-    normal = np.cross(v1, v2)
-    if norm3d(normal)==0: return 0
-    normal_unit = normal / norm3d(normal)
-    
-    # Vector from p0 (plane) to p
-    vec = p - p0
-    
-    # Distance is projection of vec onto normal
-    distance = np.abs(np.dot(vec, normal_unit))
-    return distance
 
 def mom_to_mass(p1,p2,m1,m2):
 
@@ -2556,3 +1647,667 @@ def closest_distance(pos1, mom1, pos2, mom2):
 
 # def 
 
+from spine.utils.tracking import get_track_segments
+def MCS_direction_prediction(p):
+    _, dirs, _ = get_track_segments(
+            p.points, min_len, p.start_point)
+
+    # Find the angles between successive segments
+    costh = np.sum(dirs[:-1] * dirs[1:], axis=1)
+    costh = np.clip(costh, -1, 1)
+    theta = np.arccos(costh)
+    if len(theta) < 5: return 1
+    slope, intercept = np.polyfit(np.arange(len(theta)), theta, 1)
+    return (slope)>0
+
+from spine.utils.vertex import get_vertex
+
+def reconstruct_vertex_single(particles):
+        """Post-processor which reconstructs one vertex for each interaction
+        in the provided list.
+
+        Parameters
+        ----------
+        inter : List[RecoInteraction, TruthInteraction]
+            Reconstructed/truth interaction object
+        """
+        # Selected the set of particles to use as a basis for vertex prediction
+        
+        particles = [part for part in particles if (
+                part.is_primary and
+                # part.shape in self.include_shapes and
+                part.size > 0) and part.shape not in [SHOWR_SHP]]
+        # if not self.use_primaries or not len(particles):
+        #     particles = [part for part in particles if (
+        #             part.shape in self.include_shapes and
+        #             part.size > 0)]
+        # if not len(particles):
+        # particles = [part for part in particles if part.size > 0]
+
+        if len(particles) > 0:
+            # Collapse particle objects to start, end points and directions
+            start_points = np.vstack([part.start_point for part in particles])
+            end_points   = np.vstack([part.end_point for part in particles])
+            directions   = np.vstack([part.start_dir for part in particles])
+            shapes       = np.array([part.shape for part in particles])
+
+            # Reconstruct the vertex for this interaction
+            vtx, _ = get_vertex(
+                start_points, end_points, directions, shapes,return_mode=True)
+            
+            return vtx
+
+def Bragg_Peak(p,len_bragg=10):#TODO this needs to be stored 
+    assert p.reco_length>=len_bragg,(p.reco_length,len_bragg)
+    dists = np.linalg.norm(p.points - p.end_point, axis=1)
+    edeps=[]
+    raw_edeps=[]
+    check=[]
+    # chi2=0
+    for i in range(len_bragg):
+        mask = (i<dists)&(dists<i+1)
+        # dist_i=dists[mask]
+        deps_i=p.depositions[mask]
+        edeps+=[np.sum(deps_i)*np.power(i+.5,.42)]
+        raw_edeps+=[np.sum(deps_i)]
+        check+=[np.power(i+.5,-.42)]
+    
+    chi2=np.sum((np.array(raw_edeps)-np.median(edeps)*np.array(check))**2)
+
+    return np.median(edeps),chi2
+# 
+# def correct_orientation(p,diff=3,len_bragg=10):
+#     if p.reco_length<len_bragg: return 0
+#     p_other=copy.deepcopy(p)
+#     p_other.start_point,p_other.end_point=p_other.end_point,p_other.start_point
+    
+
+#     corr,_=Bragg_Peak(p,len_bragg)
+#     wrong,_=Bragg_Peak(p_other,len_bragg)
+#     if corr-wrong>diff:
+#         return 1
+#     if wrong-corr>diff:
+#         return -1
+#     return 0
+
+
+def MIPS_AND_MICHELS(particles):
+    STRICT_MICHLS:list[Particle]=[p for p in particles if HM_pred_hotfix(p) in [MICHL_SHP,LOWES_SHP] and (not is_primary_hotfix(p))]#
+    # PROBABLE_MIPS:list[Particle]=[]
+    for p in particles:
+        if p.pid in [MUON_PID,PION_PID]:
+            if np.any(np.array([np.min(cdist([p.start_point],m.points)) for m in STRICT_MICHLS])<3*min_len) and not np.any(np.array([np.min(cdist([p.end_point],m.points)) for m in STRICT_MICHLS])<3*min_len):
+                flip_particle(p)
+def MIPS_AND_MICHELS_2(particles,skip:list[Particle]=[]):
+    STRICT_MICHLS:list[Particle]=[p for p in particles if HM_pred_hotfix(p) in [MICHL_SHP,LOWES_SHP] and (not is_primary_hotfix(p))]#
+    for p in particles:
+        if p.pid in [MUON_PID,PION_PID] and p not in skip:
+            if p.is_primary and np.any(np.array([np.min(cdist([p.end_point],m.points)) for m in STRICT_MICHLS])<3*min_len) and (NUMI_ROT@p.start_dir)[2]<0 and -(NUMI_ROT@p.start_dir)[2]>.5*np.linalg.norm(p.start_dir) and p.reco_length>40:
+                p.is_primary=False
+
+# def CORRECT_BACKWARDS(particles,skip:list[Particle]=[]):
+#     STRICT_MICHLS:list[Particle]=[p for p in particles if HM_pred_hotfix(p) in [MICHL_SHP,LOWES_SHP] and (not is_primary_hotfix(p))]#
+#     OBVIOUS_MUONS:list[Particle]=[p for p in particles if p.pid in [MUON_PID,PION_PID] and np.any(np.array([np.min(cdist([p.end_point],m.points)) for m in STRICT_MICHLS])<3*min_len)]
+
+#     all_starts_and_ends=[p.start_point for p in particles]+[p.end_point for p in particles]
+#     for m in OBVIOUS_MUONS:
+#         if m.start_dir[2]>0: continue
+#         if m in skip:continue
+#         if np.sum(cdist([m.start_point],all_starts_and_ends)<2*min_len)==2:
+#             for p in particles:
+#                 if p in skip: continue
+#                 if m==p: continue
+#                 if p.shape!=TRACK_SHP:continue
+#                 if norm3d(p.start_point-m.start_point)<min_len and p.start_dir[2]<0:
+#                     flip_particle(p)
+#                     m.is_primary=False
+
+
+def flip_particle(p:Particle):
+    p.start_point,p.end_point=p.end_point,p.start_point
+    p.start_dir=p.start_dir*(-1)
+    p.end_dir=p.end_dir*(-1)
+def merge_particles(p1,p2,particles):
+    p1.points=np.append(p1.points,p2.points,axis=0)
+    p1.depositions=np.append(p1.depositions,p2.depositions)
+    p1.end_point=p2.end_point
+    p1.length=p1.length+p2.length
+    p1.calo_ke=p1.calo_ke+p2.calo_ke
+    p1.end_dir=p2.end_dir
+    particles.remove(p2)
+    # print("merging",p1.id,p2.id)
+
+
+def K_plus_cut_cascade(obj,cuts,BASE_HIP:Particle,nu_id,potential_kaons:list[tuple[Particle,list[tuple[Particle,list[str]]]]],pass_failure,decay_mip_dict={},kaon_path={}):
+    def update_mip(cut:str,k,p):
+        idx = k[1].index(p)
+        assert cut not in k[1][idx][1]
+        if not len(p[1]):
+            k[1][idx][1].append(cut)
+        elif (not p[0].is_matched) or (p[0].match_ids[0] not in decay_mip_dict) or (not k[0].is_matched) or (k[0].match_ids[0] not in kaon_path):
+            k[1].remove(p)
+        elif decay_mip_dict[p[0].match_ids[0]].parent_id==k[0].id or norm3d(decay_mip_dict[p[0].match_ids[0]].start_point-kaon_path[k[0].match_ids[0]].end_point)<min_len:
+            k[1][idx][1].append(cut)
+        # elif 
+        else:
+            k[1].remove(p)
+
+    # BASE_HIP=copy.deepcopy(BASE_HIP)
+    
+    def update_mips(cut: str):
+        for k in potential_kaons:
+            for p in list(reversed(k[1])):   # SAFE: iterate over a copy
+                update_mip(cut, k, p)
+
+
+    RECO_VERTEX=obj.reco_vertex
+    HM_PRED=None#self.hm_pred
+    particles=obj.particles
+
+    if BASE_HIP.reco_length>4 and is_contained(BASE_HIP.start_point,margin=-5) and is_contained(BASE_HIP.end_point,margin=-5) and len(BASE_HIP.points)>=3: assert sum([p==BASE_HIP for p in particles])==1,(sum([p==BASE_HIP for p in particles]),sum([p.id==BASE_HIP.id for p in particles]))
+
+    NON_PRIMARY_TRACKS:list[Particle]=[p for p in particles if HM_pred_hotfix(p,HM_PRED) in [MIP_HM,HIP_HM] and p.reco_length>0]
+    NON_PRIMARY_MIPS:list[Particle]=[p for p in particles if HM_pred_hotfix(p,HM_PRED)==MIP_HM and p.reco_length>0]
+    NON_PRIMARY_MICHLS:list[Particle]=[p for p in particles if HM_pred_hotfix(p,HM_PRED) in [MICHL_SHP,LOWES_SHP,SHOWR_SHP,DELTA_SHP]]
+    NON_PRIMARY_SHWRS:list[Particle]=[p for p in particles if HM_pred_hotfix(p,HM_PRED) in [SHOWR_SHP,LOWES_SHP]]
+    done=False
+
+    potential_kaons+=[(BASE_HIP,[(i,[]) for i in NON_PRIMARY_MIPS])]
+    
+
+    while not done: #this loop goes over all of the hips connected to the end of the kaon, and constructs a hadronic group which hopefully contains the kaon end. 
+        done=True
+        # print("looking")
+        
+        for p in NON_PRIMARY_TRACKS:
+            if p not in [r[0] for r in potential_kaons]:
+                # print("getting here")
+                for k in potential_kaons:
+                    # print(k[0])
+                    n1=norm3d(p.start_point-k[0].end_point)
+                    n2=norm3d(p.start_point-k[0].start_point)
+                    if n1<min_len and n1<n2:
+
+                        potential_kaons+=[(p,[(i,[]) for i in NON_PRIMARY_MIPS])]
+                        done=False
+                        break
+                    # elif n2<min_len and n2<n1:
+                    #     potential_kaons+=[[p,copy.copy(MIP_CHAINS),[]]]
+                    #     done=False
+                    #     break
+
+    failed=False
+    for c in cuts:
+        # if len(self.pass_failure)>=3: break
+
+        checked=False
+
+        if c=="Contained HIP":
+            checked=True
+            if (not is_contained(BASE_HIP.end_point,margin=3)) or (not is_contained(BASE_HIP.start_point,margin=3)):
+                update_mips(c)
+                failed=True
+
+        if c=="Fiducialization":
+            checked=True
+            if (not is_contained(RECO_VERTEX,margin=margin0)):
+                update_mips(c)
+                failed=True
+                
+
+        elif c=="dedx chi2":
+            checked=True
+            for k in potential_kaons:#this loop looks for appropriate mips at one of the ends of the hadronic group
+                if k[0].reco_length>10 and len(k[1]):
+                    bp=Bragg_Peak(k[0])[1]
+                    if bp>cuts[c]:
+                        for p in list(reversed(k[1])):
+                            update_mip(c,k,p)
+
+
+        elif c=="Connected Non-Primary MIP":
+            # did_something=0
+            checked=True
+            for k in potential_kaons:
+                for p in list(reversed(k[1])):
+                        # assert type(p)==list[Particle],(type(p),type[p[0]])
+                        # plen=np.sum([i.reco_length for i in p])
+
+                    
+
+                        mip_start=p[0].start_point
+                        # mip_end=p[0].end_point
+
+
+
+                        n1=norm3d(mip_start-k[0].end_point)
+                        if (n1>min_len*2 or n1>=norm3d(mip_start-k[0].start_point)):
+                            # did_something=1
+                            update_mip(c,k,p)
+                        elif p[0].is_primary and norm3d(p[0].start_point-BASE_HIP.start_point)<min_len/2:
+                            update_mip(c,k,p)
+
+                
+        
+        elif c=="No HIP Deltas":
+            checked=True
+            deltas=False
+
+            DELTAS=[p for p in particles if p.shape==DELTA_SHP]
+            for p in DELTAS:
+                # if p.shape==DELTA_SHP:
+                if np.min(cdist(BASE_HIP.points, [p.start_point]))<min_len/2:
+                    deltas=True
+                    update_mips(c)
+                    failed=True
+                    break
+            if not deltas:
+                for k in potential_kaons:
+                    for p in list(reversed(k[1])):
+                        for d in DELTAS:
+                        # for p in list(reversed(k[1])):
+                            if np.min(cdist(k[0].points, [d.start_point]))<min_len/2:
+                        # deltas=True
+                                update_mip(c,k,p)
+                                break
+        elif c=="No LOW E MIP Deltas":
+            checked=True
+            deltas=False
+
+            DELTAS=[p for p in particles if p.shape==DELTA_SHP and p.reco_ke>10]
+            for k in potential_kaons:
+                for p in list(reversed(k[1])):
+                    for d in DELTAS:
+                    # for p in list(reversed(k[1])):
+                        if np.min(cdist(p[0].points, [d.start_point]))<cuts[c]:
+                        # deltas=True
+                            
+                            update_mip(c,k,p)
+                            break
+
+            # if deltas:
+                # if HM_pred_hotfix(BASE_HIP,HM_PRED)!=HIP_HM and BASE_HIP.pid not in  [3,4]:
+                # update_mips(c)
+
+
+        elif c=="Contained MIP":
+            checked=True
+            for k in potential_kaons:
+                for p in list(reversed(k[1])):
+                        # assert type(p)==list[Particle],(type(p),type[p[0]])
+                        # plen=np.sum([i.reco_length for i in p])
+
+                        
+
+                        # mip_start=p[0].start_point
+                        mip_end=p[0].end_point
+
+                        if not is_contained(mip_end,margin=1):
+                            update_mip(c,k,p)
+            
+            # print(np.sum([len(k[1]) for k in potential_kaons]))
+            # if np.sum([len(k[1]) for k in potential_kaons])==0:
+            #     self.pass_failure+=[c]
+                
+
+
+        elif c=="Nothing Before the Start":
+            checked=True
+            for p in particles:
+                if p.shape==TRACK_SHP and p.is_primary and p.reco_length>5*min_len and p.pid!=MUON_PID:
+                    if norm3d(p.end_point-BASE_HIP.start_point)<min_len/2 and norm3d(p.start_point-BASE_HIP.start_point)>3*min_len:
+                        update_mips(c)
+                        failed=True
+
+
+        
+
+        elif c=="Initial HIP":
+            checked=True
+            if HM_pred_hotfix(BASE_HIP,HM_PRED)!=HIP_HM and BASE_HIP.pid not in  [3,4]:
+                update_mips(c)
+                failed=True
+            if BASE_HIP.reco_length<=0: 
+                update_mips(c)
+                failed=True
+                
+
+        
+        elif c==rf"Primary $K^+$":
+            checked=True
+            # if type(interaction)==TruthInteraction:
+            if not is_primary_hotfix(BASE_HIP):# and norm3d(inter-BASE_HIP.end_point)>cuts[c]):# or norm3d(BASE_HIP.start_point-inter)>cuts[c]:# or HM_pred_hotfix(BASE_HIP,hm_pred)!=HIP_HM:
+                update_mips(c)
+                failed=True
+                
+            # else:
+            #     if not is_primary_hotfix(BASE_HIP):#norm3d(BASE_HIP.start_point-inter)>cuts[c] and 
+            #         self.pass_failure+=[c]
+            #         
+
+        elif c=="Close to Vertex":
+            checked=True
+            # if type(interaction)==TruthInteraction:
+            # others_dist_start=min([np.linalg.norm(p.start_point-BASE_HIP.start_point) for p in self.particles if p!=BASE_HIP])
+            # others_dist_end=min([np.linalg.norm(p.start_point-BASE_HIP.start_point) for p in self.particles if p!=BASE_HIP])
+            if np.linalg.norm(BASE_HIP.start_point-RECO_VERTEX)>cuts[c]:# and norm3d(inter-BASE_HIP.end_point)>cuts[c]):# or norm3d(BASE_HIP.start_point-inter)>cuts[c]:# or HM_pred_hotfix(BASE_HIP,hm_pred)!=HIP_HM:
+                # if others_dist<2*min_len:
+                update_mips(c)
+                failed=True
+                # else:
+                #     if impact_parameter(RECO_VERTEX,BASE_HIP.start_point,BASE_HIP.start_dir)<min_len/2:
+
+
+
+        elif c=="Correct HIP TPC Assoc.":
+            checked=True
+            # if get_tpc_id(BASE_HIP.start_point) not in set([i[1] for i in BASE_HIP.sources]) and get_tpc_id(BASE_HIP.end_point) not in set([i[1] for i in BASE_HIP.sources]):#BASE_HIP.module_ids:
+            if not BASE_HIP.is_contained:
+                
+                update_mips(c)
+                failed=True
+                
+
+                # if self.truth:
+                    # print("Correct HIP Module Assoc.",get_tpc_id(BASE_HIP.start_point),get_tpc_id(BASE_HIP.end_point),BASE_HIP.sources)
+
+
+        elif c=="Kaon Len":
+            checked=True
+            if BASE_HIP.reco_length<cuts[c]:
+                update_mips(c)
+                failed=True
+                
+
+        elif c=="Valid Interaction":
+            checked=True
+            if type(BASE_HIP)==TruthParticle:
+                if nu_id==-1:
+                    update_mips(c)
+                    failed=True
+            elif type(BASE_HIP)==RecoParticle:
+                # print()
+                if not obj.is_flash_matched:# and best_dist>cuts[c]:
+                    # if self.truth: print("FAILED AT VALID INTERACTION")#,best_dist)
+                    update_mips(c)
+                    failed=True
+                    
+            else:
+                raise Exception(type(BASE_HIP))
+            
+
+        elif c=="Forward HIP":
+            checked=True
+            if angle_between(BASE_HIP.momentum,NUMI_BEAM_DIR)>cuts[c] and len([p for p in particles if p.shape==TRACK_SHP])==2 and len([p for p in particles if p.shape==SHOWR_SHP and p.is_primary])==0:
+                # found_another=False
+                # for p in self.particles:
+                #     if p.id!=BASE_HIP.id and norm3d(p.start_point-BASE_HIP.start_point)<min_len:
+                #         found_another=True
+                #         break
+                # if not found_another:
+                update_mips(c)
+                failed=True
+        elif c=="More Than Downgoing":
+            checked=True
+            ending=[]
+            starting=[]
+            for p in particles:
+                if norm3d(p.end_point-RECO_VERTEX)<min_len/2:
+                    ending+=[p]
+                if norm3d(p.start_point-RECO_VERTEX)<min_len/2:
+                    starting+=[p]
+                if len(ending)>1 or len(starting)>1:
+                    break
+                # if len()
+            if len(starting)==1 and len(ending)==1:
+                # if norm3d(starting[0].start_point-ending[0].end_point)<min_len:
+                if np.abs(angle_between(starting[0].momentum,ending[0].end_dir)-np.pi/2)>np.pi/2-cuts[c][1] and np.abs(angle_between(starting[0].momentum,np.array([0,-1,0]))-np.pi/2)>np.pi/2-cuts[c][0]:
+                    update_mips(c)
+                    failed=True
+                    
+
+            elif len(starting)==1 and len(ending)<2 and angle_between(starting[0].momentum,np.array([0,-1,0]))<cuts[c][0]:
+                update_mips(c)
+                failed=True
+                
+            
+        elif c=="":
+            checked=True
+            # 
+
+            pass_failure+=[""]
+
+        elif c=="Michel Child":
+            checked=True
+            for k in potential_kaons:#this loop looks for appropriate mips at one of the ends of the hadronic group
+                for p in list(reversed(k[1])):
+
+                    # mip_start=p[0].start_point
+                    mip_end=p[0].end_point
+
+                    mich_child=False
+                    # if p[0].reco_length>10:
+                        # mich_child=Bragg_Peak(p[0])>5.5
+                    for other in NON_PRIMARY_MICHLS:
+                        if other.reco_ke>90: continue
+                        check_dist=np.min(cdist([mip_end],other.points))
+                        if other.shape not in [DELTA_SHP,LOWES_SHP]:
+                            if check_dist<4*min_len:
+                                mich_child=True
+                                break
+                        else:
+                            if check_dist<min_len/2:
+                                mich_child=True
+                                break
+
+                    if not mich_child:
+                        
+                        update_mip(c,k,p)
+
+        # elif c==r"HIP $K^+ or >0 Scatter$":
+                            
+        #     if k[0]==BASE_HIP and BASE_HIP.pid in [2,3]:
+        #         
+        #         update_mip(c,k,p)
+
+        elif c==r"Low MIP len $\pi^0$ Tag":
+            checked=True
+            for k in potential_kaons:#this loop looks for appropriate mips at one of the ends of the hadronic group
+                for p in list(reversed(k[1])):
+                    # assert type(p)==list[Particle],(type(p),type[p[0]])
+                    # plen=np.sum([i.reco_length for i in p])
+                    plen=p[0].reco_length
+
+                    mip_start=p[0].start_point
+                    mip_end=p[0].end_point
+                    
+    
+                    has_pi0=(plen>=40)
+                    if not has_pi0:
+                        for other in NON_PRIMARY_SHWRS:
+                            if other.reco_ke<10: continue# i think the minimal energy of a photon from the pi0 is around 20MeV
+                            if other.reco_ke>300: continue# i think the maximum energy is around 225 MeV
+                            if (#norm3d(other.start_point-mip_start)<cuts[c][0]*np.inf
+                                # and norm3d(other.start_point-mip_end)>min_len 
+                                np.min(cdist(other.points, [mip_end]))>min_len
+                                and (impact_parameter(mip_start,other.start_point,other.momentum)<impact_parameter(BASE_HIP.start_point,other.start_point,other.momentum) or np.linalg.norm(BASE_HIP.start_point-mip_start)<3*min_len)
+                                and (impact_parameter(mip_start,other.start_point,other.momentum)<cuts[c])):#or angle_between(other.start_point-mip_start,other.momentum)<cuts[c][2])
+                                # and cos_gamma_to_pip_bounds(other.reco_ke)[0]<np.cos(angle_between(other.start_point-mip_start,p[0].momentum)) and np.cos(angle_between(other.start_point-mip_start,p[0].momentum))<cos_gamma_to_pip_bounds(other.reco_ke)[1]):
+                                # and abs((cos_gamma_to_E(mip_start,other.start_point,p[0].momentum)-other.reco_ke)/other.reco_ke)<cuts[c][2]):
+                                has_pi0+=1 #TODO apparently a 3112 doesnt get a reco length?
+                    if not has_pi0:
+                        
+                        update_mip(c,k,p)
+
+        elif c=="MIP Child At Most 1 Michel":
+            checked=True
+            for k in potential_kaons:#this loop looks for appropriate mips at one of the ends of the hadronic group
+                for p in list(reversed(k[1])):
+                    # assert type(p)==list[Particle],(type(p),type[p[0]])
+                    # plen=np.sum([i.reco_length for i in p])
+                    plen=p[0].reco_length
+
+                    mip_start=p[0].start_point
+                    mip_end=p[0].end_point
+                            
+                    # for other in NON_PRIMARY_HIPS:
+                    # check1=np.any([(norm3d(other.start_point-mip_end)<min_len)*(other.reco_length>min_len) for other in NON_PRIMARY_HIPS if other!=p[-1]])
+                    # check2=np.any([(norm3d(other.start_point-mip_end)<min_len)*(other.reco_length>min_len) for other in NON_PRIMARY_MIPS if other!=p[-1]])
+
+                    check=np.any([(norm3d(other.start_point-mip_end)<min_len)*(other.reco_length>min_len/2) for other in NON_PRIMARY_TRACKS if other.pid==PROT_PID])
+                    if check:
+
+                        
+                        update_mip(c,k,p)
+                        continue
+                    check2=np.any([(norm3d(other.start_point-mip_end)<min_len)*(other.reco_length>min_len) for other in NON_PRIMARY_TRACKS])
+                    if check2:
+
+                        
+                        update_mip(c,k,p)
+                        continue
+                    check3=np.any([(norm3d(other.end_point-mip_end)<min_len)*(other.reco_length>min_len) for other in NON_PRIMARY_TRACKS if other.id!=p[0].id])
+                    if check3:
+
+                        
+                        update_mip(c,k,p)
+                        continue
+                    
+        elif c=="Single MIP Decay":
+            checked=True
+            for k in potential_kaons:#this loop looks for appropriate mips at one of the ends of the hadronic group
+                for p in list(reversed(k[1])):
+                    # assert type(p)==list[Particle],(type(p),type[p[0]])
+                    # plen=np.sum([i.reco_length for i in p])
+                    plen=p[0].reco_length
+
+                    mip_start=p[0].start_point
+                    mip_end=p[0].end_point
+
+                    if np.sum([(norm3d(other.start_point-mip_start)<min_len)*(other.reco_length>min_len)*(norm3d(other.start_point-mip_start)<norm3d(other.start_point-BASE_HIP.start_point)) for other in NON_PRIMARY_TRACKS if other!=BASE_HIP])>1:
+                        
+                        update_mip(c,k,p)
+        
+        elif c=="Separable MIP":
+            checked=True
+            for k in potential_kaons:#this loop looks for appropriate mips at one of the ends of the hadronic group
+                for p in list(reversed(k[1])):
+                    if angle_between(BASE_HIP.end_dir,p[0].start_dir)<cuts[c]:
+                        update_mip(c,k,p)
+
+                    # assert type(p)==list[Particle],(type(p),type[p[0]])
+                    # plen=np.sum([i.reco_length for i in p])
+                    # plen=p[0].reco_length
+
+                            # if other.shape==TRACK_SHP and norm3d(other.start_point-p.start_point)<min_len and other.reco_length>min_len:
+                                # add_it=False
+                                # ???????
+        elif c=="Bragg Peak HIP":
+            checked=True
+            # all_particle_starts=[p.start_point for p in self.particles]
+            for k in potential_kaons:#this loop looks for appropriate mips at one of the ends of the hadronic group
+                if k[0].reco_length>10 and len(k[1]):
+                    # starts = np.array(all_particle_starts)
+                    # v0 = np.array(k[0].end_point)
+
+                    # # Compute Euclidean distances from each point to v0
+                    # dists = np.linalg.norm(starts - v0, axis=1)
+
+                    # # Count how many are within 'dist'
+                    # num_within = np.sum(dists <= 2*min_len)
+                    # if num_within>1: continue
+
+                    bp=Bragg_Peak(k[0])[0]
+                    if bp<cuts[c]:
+                        for p in list(reversed(k[1])):
+                            update_mip(c,k,p)
+
+        elif c=="Bragg Peak MIP":
+            checked=True
+            for k in potential_kaons:#this loop looks for appropriate mips at one of the ends of the hadronic group
+                for p in list(reversed(k[1])):
+                    if p[0].reco_length>10:
+                        bp=Bragg_Peak(p[0])[0]
+                        if bp<cuts[c]:
+                            # for p in list(reversed(k[1])):
+                            update_mip(c,k,p)
+        elif c=="Come to Rest MIP":
+            checked=True
+            for k in potential_kaons:#this loop looks for appropriate mips at one of the ends of the hadronic group
+                for p in list(reversed(k[1])):
+                    ctr=come_to_rest(p[0],mass=PION_MASS)+1
+                    val=cuts[c]+1
+                    if ctr<val or ctr>1/val:
+                        # for p in list(reversed(k[1])):
+                        update_mip(c,k,p)
+
+        elif c=="Come to Rest":
+            checked=True
+            for k in potential_kaons:#this loop looks for appropriate mips at one of the ends of the hadronic group
+                
+                    # assert type(p)==list[Particle],(type(p),type[p[0]])
+                    # plen=np.sum([i.reco_length for i in p])
+                    # plen=p[0].reco_length
+
+                    # mip_start=p[0].start_point
+                    # mip_end=p[0].end_point
+                    if  k[0].reco_length>5 and len(k[1]):
+
+                        ctr=come_to_rest(k[0])
+                        if ctr<cuts[c]:# and k[0].reco_length>10:# or abs(csda_ke_lar(k[0].reco_length, PROT_MASS)-k[0].calo_ke)<.25*abs(csda_ke_lar(k[0].reco_length, KAON_MASS)-k[0].calo_ke) or abs(csda_ke_lar(k[0].reco_length, PION_MASS)-k[0].calo_ke)<.25*abs(csda_ke_lar(k[0].reco_length, KAON_MASS)-k[0].calo_ke):
+                            
+                            for p in list(reversed(k[1])):
+                                update_mip(c,k,p)
+
+        elif c=="Valid MIP Len":
+            checked=True
+            for k in potential_kaons:#this loop looks for appropriate mips at one of the ends of the hadronic group
+                for p in list(reversed(k[1])):
+                    # assert type(p)==list[Particle],(type(p),type[p[0]])
+                    # plen=np.sum([i.reco_length for i in p])
+                    plen=p[0].reco_length
+
+                    mip_start=p[0].start_point
+                    mip_end=p[0].end_point
+                            
+                    if not ((cuts[c]["mu_len"][0]<plen and plen<cuts[c]["mu_len"][1]) or 
+                            (cuts[c]["pi_len"][0]<plen and plen<cuts[c]["pi_len"][1])):
+                        
+                        update_mip(c,k,p)
+
+        elif c=="Correct MIP TPC Assoc.":
+            checked=True
+            for k in potential_kaons:#this loop looks for appropriate mips at one of the ends of the hadronic group
+                for p in list(reversed(k[1])):
+                    # assert type(p)==list[Particle],(type(p),type[p[0]])
+                    # plen=np.sum([i.reco_length for i in p])
+                    plen=p[0].reco_length
+
+                    mip_start=p[0].start_point
+                    mip_end=p[0].end_point
+
+                    if not p[0].is_contained or not p[0].is_contained:
+                        
+                        
+                        update_mip(c,k,p)
+
+                        # if self.truth:
+                            # print("Correct MIP Module Assoc.",get_tpc_id(p[0].start_point),set([i[1] for i in p[0].sources]),get_tpc_id(p[0].start_point),set([i[1] for i in p[0].sources]))
+        if failed:
+            assert not np.any([len(l[1]) == 0 for k in potential_kaons for l in k[1]])
+
+        if np.any([len(l[1]) == 0 for k in potential_kaons for l in k[1]]):
+            assert not failed
+        else:
+            pass_failure+=[c]
+            failed=True
+            # if not self.truth:
+                # return False
+                
+        if not checked:
+            raise Exception(c,"not found in K+ cuts")
+
+
+
+#TODO need PIDA variable
+#TODO need an "end point for michel/delta/shower"

@@ -1,49 +1,17 @@
-# from scipy.spatial.distance import cdist
-
-# import os
 import sys
 import os
 from types import NoneType
-# import random
-import numpy as np
-# from numpy._core.numerictypes import bool_
 import yaml
 
-
-SOFTWARE_DIR = '/sdf/group/neutrino/zhulcher/spine' #or wherever on sdf
+from analysis.analysis_cuts import *
 from collections import Counter
 
 USE_HM=False
 
-
-
-# min_len=2.5
-
-# Set software directory
 sys.path.append(SOFTWARE_DIR)
 from spine.driver import Driver
-from spine.io.read import HDF5Reader
+from spine.io.core.read import HDF5Reader
 from spine.data import Meta as Met
-from spine.data.out import TruthParticle,RecoParticle,RecoInteraction,TruthInteraction
-Interaction = RecoInteraction | TruthInteraction
-from scipy.spatial.distance import cdist
-
-Particle = TruthParticle|RecoParticle
-from analysis.analysis_cuts import *
-
-# analysis_type='icarus'
-# if analysis_type=='2x2':
-#     full_containment='detector'
-# else:
-#     full_containment='module'
-
-# from spine.utils.globals import TRACK_SHP
-
-
-
-
-# K_MIN_KE=40
-# LAM_MIN_KE=50
 
 
 def closest_reco_particle_to_truth_start(p:Particle,particles:list[Particle],truth_particles:list[TruthParticle],skip:RecoParticle|NoneType=None)->Particle:
@@ -76,26 +44,12 @@ def closest_reco_particle_to_truth_start(p:Particle,particles:list[Particle],tru
             closest_to_start=particles[i]
             best_dist=dist
     # if closest_to_start is None: return p
-
+    assert closest_to_start is not None
     return closest_to_start
 
 
 
-
-
-# from collections import Counter
-
-
 def main(HMh5,analysish5,mode:bool=True,outfile='',compare_truth="True"):
-
-    # newsemseg="utils/output_HM.h5"
-
-    #######read in the analysis file I generate from HIP/MIP prediction##################
-
-    
-    #######read in the analysis file I generate from HIP/MIP prediction##################
-
-    ######read in the analysis file that everyone looks at##################
 
     # This is the analysis file generated from the sample
     anaconfig = 'configs/anaconfig.cfg'
@@ -114,22 +68,6 @@ def main(HMh5,analysish5,mode:bool=True,outfile='',compare_truth="True"):
     predicted_L:list[Pred_Neut]=[]
     predicted_K0s:list[Pred_Neut]=[]
     # inters:dict[tuple[int,int],Interaction]={}
-
-
-    # primarymip: dict[int,PrimaryMIP]={}
-
-    # truth_interaction_map = {}
-
-    # num_nu=0
-    # nu_type_K=[]
-    # nu_type_L=[]
-    # nu_type_K0s=[]
-
-    # if compare_truth:
-    #     directory2="/sdf/data/neutrino/zhulcher/BNBNUMI/dan_carber3_larcv_truth"
-    #     assert mode
-    #     raise Exception(directory2,outfile)
-    #     __,__,final_interactions = np.load(truth_file, allow_pickle=True)
         
 
 
@@ -186,29 +124,6 @@ def main(HMh5,analysish5,mode:bool=True,outfile='',compare_truth="True"):
             assert len(perm)==len(reader[ENTRY_NUM]['seg_label']),(len(perm),len(reader[ENTRY_NUM]['seg_label']))
 
             # assert len(perm)==len(sparse3d_pcluster_semantics_HM),(len(perm),len(sparse3d_pcluster_semantics_HM),len(reader[ENTRY_NUM]['seg_label']),len(data['points_label']),len(reader[ENTRY_NUM]['segmentation']),len(data['points']),len(index_set),max(index_set))
-
-
-            
-
-            
-
-            # perm = np.arange(len(data['points_label']))
-            # perm_inverse = np.argsort(perm)
-
-            # if mode:
-                
-            # else:
-
-            
-
-            
-
-            
-
-
-            # if random.randint(0, 100)==0:
-            
-            # if len(particles)>0:
             
             for p_to_check in range(len(particles)):
             # p_to_check=random.randint(0, len(particles)-1)
@@ -292,7 +207,7 @@ def main(HMh5,analysish5,mode:bool=True,outfile='',compare_truth="True"):
             if compare_truth:
                 if mode:
                     assert type(hip_candidate)==TruthParticle
-                    truth_list=np.array([hip_candidate.is_primary , # or np.isclose(np.linalg.norm(hip_candidate.position-hip_candidate.ancestor_position),0) #0 or (abs(hip_candidate.parent_pdg_code)==321 and process_map[hip_candidate.ancestor_creation_process]=='primary')
+                    truth_list=np.array([hip_candidate.is_primary or (hip_candidate.parent_id==hip_candidate.id and hip_candidate.ancestor_pdg_code==321), # or np.isclose(np.linalg.norm(hip_candidate.position-hip_candidate.ancestor_position),0) #0 or (abs(hip_candidate.parent_pdg_code)==321 and process_map[hip_candidate.ancestor_creation_process]=='primary')
                             # hip_candidate.ke>K_MIN_KE, #1
                             # is_contained(hip_candidate.points), #2
                             # is_contained(interactions[hip_candidate.interaction_id].vertex,margin=margin0),
@@ -313,9 +228,10 @@ def main(HMh5,analysish5,mode:bool=True,outfile='',compare_truth="True"):
                         # if 
 
                         match_hip=truth_particles[m0]
+                        assert type(match_hip)==TruthParticle
 
                         truth_list=np.array([len(match)>0,
-                            match_hip.is_primary, # or np.isclose(np.linalg.norm(hip_candidate.position-hip_candidate.ancestor_position),0) #0 or (abs(hip_candidate.parent_pdg_code)==321 and process_map[hip_candidate.ancestor_creation_process]=='primary')
+                            match_hip.is_primary or (match_hip.parent_id==match_hip.id and match_hip.ancestor_pdg_code==321), # or np.isclose(np.linalg.norm(hip_candidate.position-hip_candidate.ancestor_position),0) #0 or (abs(hip_candidate.parent_pdg_code)==321 and process_map[hip_candidate.ancestor_creation_process]=='primary')
                                 # hip_candidate.ke>K_MIN_KE, #1
                                 # is_contained(hip_candidate.points), #2
                                 # is_contained(truth_interactions[match_hip.interaction_id].vertex,margin=margin0),
@@ -355,7 +271,7 @@ def main(HMh5,analysish5,mode:bool=True,outfile='',compare_truth="True"):
             
             pass_prelims=is_contained(reco_vert_hotfix(interactions[hip_candidate.interaction_id]),margin=0)
             # pass_prelims=is_contained(interactions[hip_candidate.interaction_id].vertex)*is_contained(hip_candidate.points)
-            pass_prelims*=(HM_pred_hotfix(hip_candidate,HM_pred)==HIP_HM or hip_candidate.pid in [3,4])#hip_candidate.shape==TRACK_SHP#
+            pass_prelims*=(HM_pred_hotfix(hip_candidate,HM_pred)==HIP_HM or hip_candidate.pid in [PION_PID,PROT_PID])#hip_candidate.shape==TRACK_SHP#
 
             pass_prelims*=hip_candidate.is_primary
 
@@ -375,36 +291,8 @@ def main(HMh5,analysish5,mode:bool=True,outfile='',compare_truth="True"):
             #             dist = np.min(cdist(hip_candidate.points, [interactions[hip_candidate.interaction_id].vertex]))
                 
             #     # pass_prelims*=(dist<10)
-
-            if pass_prelims and not mode:
-                fm=interactions[hip_candidate.interaction_id].is_flash_matched
-                if not fm:
-                # if not interactions[hip_candidate.interaction_id].is_flash_matched:
-                    for v in interactions:
-                        if v.is_flash_matched:
-                            if np.linalg.norm(reco_vert_hotfix(v)-reco_vert_hotfix(interactions[hip_candidate.interaction_id]))<500:
-                                fm=True
-                                break
-                            # continue
-                        # if i.id==self.interaction.id:
-                            # continue
-                        # if i.is_flash_matched:
-                        # print(v[0],inter)
-
-                        # if v[2]==self.interaction.id: continue
-                            # if 
-                            # d=np.linalg.norm(v[0]-inter)
-
-                        
-                        # if d<best_dist:
-                        #     best_dist=d
-                        #     inter=v[0]
-                pass_prelims*=fm
-
-
-
-            # points_i = np.vstack([hip_candidate.start_point, hip_candidate.end_point])
-            # points_j = np.vstack([mip_candidate.start_point, mip_candidate.end_point])
+            fm=interactions[hip_candidate.interaction_id].is_flash_matched
+            pass_prelims*=fm
 
             
             if not (Truth_K or pass_prelims):continue
@@ -427,6 +315,8 @@ def main(HMh5,analysish5,mode:bool=True,outfile='',compare_truth="True"):
                 # predicted_K_mu_mich[ENTRY_NUM] = []
             # print(mip_candidate.reco_length)
             # if 
+
+            # delta_shp
             predicted_K_mu_mich+=[PredKaonMuMich(ENTRY_NUM,hip_candidate,particles,interactions,HM_pred,truth=Truth_K,reason=reason,truth_list=truth_list,truth_particles=truth_particles,truth_interactions=truth_interactions)]
         # print("starting lambda")
 
@@ -489,14 +379,6 @@ def main(HMh5,analysish5,mode:bool=True,outfile='',compare_truth="True"):
 
                         hip_match=lam_hip_candidate.match_ids
                         mip_match=lam_mip_candidate.match_ids
-
-
-                        # best_hip_match:TruthParticle=truth_particles[hip_match[0]]
-                        # best_mip_match:TruthParticle=truth_particles[mip_match[0]]
-
-
-                        # unique_hip_match=(lam_hip_candidate.match_ids[0]==best_hip_match.id)*(particles[best_hip_match.match_ids[0]].id==lam_hip_candidate.id)
-                        # unique_mip_match=(lam_mip_candidate.match_ids[0]==best_mip_match.id)*(particles[best_mip_match.match_ids[0]].id==lam_mip_candidate.id)
 
 
 
@@ -591,31 +473,31 @@ def main(HMh5,analysish5,mode:bool=True,outfile='',compare_truth="True"):
                 
                     pass_prelims*=(dist<10)
 
+                fm=interactions[lam_hip_candidate.interaction_id].is_flash_matched
+                # if pass_prelims and not mode:
+                   
+                #     if not fm:
+                #     # if not interactions[hip_candidate.interaction_id].is_flash_matched:
+                #         for v in interactions:
+                #             if v.is_flash_matched:
+                #                 if np.linalg.norm(reco_vert_hotfix(v)-reco_vert_hotfix(interactions[lam_hip_candidate.interaction_id]))<500:
+                #                     fm=True
+                #                     break
+                #                 # continue
+                #             # if i.id==self.interaction.id:
+                #                 # continue
+                #             # if i.is_flash_matched:
+                #             # print(v[0],inter)
 
-                if pass_prelims and not mode:
-                    fm=interactions[lam_hip_candidate.interaction_id].is_flash_matched
-                    if not fm:
-                    # if not interactions[hip_candidate.interaction_id].is_flash_matched:
-                        for v in interactions:
-                            if v.is_flash_matched:
-                                if np.linalg.norm(reco_vert_hotfix(v)-reco_vert_hotfix(interactions[lam_hip_candidate.interaction_id]))<500:
-                                    fm=True
-                                    break
-                                # continue
-                            # if i.id==self.interaction.id:
-                                # continue
-                            # if i.is_flash_matched:
-                            # print(v[0],inter)
-
-                            # if v[2]==self.interaction.id: continue
-                                # if 
-                                # d=np.linalg.norm(v[0]-inter)
+                #             # if v[2]==self.interaction.id: continue
+                #                 # if 
+                #                 # d=np.linalg.norm(v[0]-inter)
 
                             
-                            # if d<best_dist:
-                            #     best_dist=d
-                            #     inter=v[0]
-                    pass_prelims*=fm
+                #             # if d<best_dist:
+                #             #     best_dist=d
+                #             #     inter=v[0]
+                pass_prelims*=fm
 
                 if not (Truth_lam or pass_prelims):
                     continue
@@ -698,7 +580,7 @@ def main(HMh5,analysish5,mode:bool=True,outfile='',compare_truth="True"):
         np.savez_compressed(outfile,PREDKAON=predicted_K_mu_mich,PREDLAMBDA=predicted_L)#,PREDK0S=predicted_K0s,NUMNU=num_nu)#,Counter(nu_type_K),Counter(nu_type_L),Counter(nu_type_K0s),primarymip,truth_interaction_map]))
         import subprocess
         from pathlib import Path
-        for s in ["statistics_plot_kp.py"]:#,"statistics_plot_lam.py","statistics_plot_assoc_CCNC.py"]:
+        for s in ["statistics_plot_kp.py","statistics_plot_lam.py"]:#,"statistics_plot_lam.py","statistics_plot_assoc_CCNC.py"]:
             for m in ["reco"]:#,"truth"]:
                 script = Path(__file__).parent / s
                 cmd = [sys.executable, str(script), "--mode", m,"--single_file",os.path.basename(outfile+".npz")]
@@ -707,44 +589,6 @@ def main(HMh5,analysish5,mode:bool=True,outfile='',compare_truth="True"):
     # raise Exception(potential_K.keys(),predicted_K.keys())
     return [predicted_K_mu_mich, predicted_L,predicted_K0s]
 if __name__ == "__main__":
-    # main(mode=True,HMh5="lambdas_10/output_0_0000-analysis_HM_truth.h5",analysish5= 'lambdas_10/output_0_0000-analysis_truth.h5',outfile='npyfiles/test_L_10.npy')
-    # main(mode=True,HMh5="kaons_10/output_0_0000-analysis_HM_truth.h5",analysish5= 'kaons_10/output_0_0000-analysis_truth.h5',outfile='npyfiles/test_K_10.npy')
-    # main(mode=True,HMh5="kaons/output_0_0000-analysis_HM_truth.h5",analysish5= 'kaons/output_0_0000-analysis_truth.h5')
-
-    # main(mode=True,HMh5="lambdas_250/output_0_0000-analysis_HM_truth.h5",analysish5= 'lambdas_250/output_0_0000-analysis_truth.h5',outfile='npyfiles/test_L_250_only_truth.npy',use_only_truth=True)
-    # main(mode=True,HMh5="lambdas_250/output_0_0000-analysis_HM_truth.h5",analysish5= 'lambdas_250/output_0_0000-analysis_truth.h5',outfile='npyfiles/test_L_250.npy')
-    # main(mode=True,HMh5="kaons_250/output_0_0000-analysis_HM_truth.h5",analysish5= 'kaons_250/output_0_0000-analysis_truth.h5',outfile='npyfiles/test_K_250_only_truth.npy',use_only_truth=True)
-    # main(mode=True,HMh5="kaons_250/output_0_0000-analysis_HM_truth.h5",analysish5= 'kaons_250/output_0_0000-analysis_truth.h5',outfile='npyfiles/test_K_250.npy')
-
-    # for path in ["2024-08-14-lambdas","2024-08-14-kaons"]:
-    #     main(
-    #         mode=True,
-    #         HMh5=path+"/output_0_0000-analysis_HM_truth.h5",
-    #         analysish5=path+"/output_0_0000-analysis_truth.h5",
-    #         outfile="npyfiles/"+path+".npy",
-    #         assign_truth=True,
-    #     )
-
-
-    # for path in ["2024-08-16-lambdas","2024-08-16-kaons"]:
-    #     main(
-    #         mode=True,
-    #         HMh5=path+"/output_0_0000-analysis_HM_truth.h5",
-    #         analysish5=path+"/output_0_0000-analysis_truth.h5",
-    #         outfile="npyfiles/"+path+".npy",
-    #         assign_truth=True,
-    #     )
-
-    # for path in ["2024-10-16-kaons","2024-08-16-lambdas"]:
-    #     main(
-    #         mode=True,
-    #         HMh5=path+"/output_0_0000-analysis_HM_truth.h5",
-    #         analysish5=path+"/output_0_0000-analysis_truth.h5",
-    #         outfile="npyfiles/"+path+".npy",
-    #         assign_truth=True,
-    #     )
-    # FILEDIR="/sdf/data/neutrino/zhulcher/BNBNUMI/dan_carber_files/"
-    # SAVEDIR="/sdf/data/neutrino/zhulcher/BNBNUMI/dan_carber_npy/"
 
     import argparse
 
@@ -830,34 +674,4 @@ if __name__ == "__main__":
                 # outfile=SAVEDIR+"npyfiles/"+path,
                 compare_truth=args.compare_truth
             )
-    
-        # main(
-        #     mode=False,
-        #     HMh5=args.dir+"_reco/analysis_HM_reco.h5",
-        #     analysish5=args.dir+"_reco/analysis_reco.h5",
-        #     outfile=os.path.join(SAVEDIR,"npyfiles_reco/"+os.path.basename(os.path.normpath(args.dir)))
-        #     )
 
-    
-    # import os
-    # path="beam/processed"
-    # directories = [entry for entry in os.listdir(path) if os.path.isdir(os.path.join(path, entry))]
-    # for entry in sorted(directories):
-    #     full_path = os.path.join(path, entry)
-    #     if os.path.isdir(full_path):
-    #         print(entry)
-    #         # print(path)
-    #         main(
-    #             mode=True,
-    #             HMh5=path+"/"+entry+"/output_0_0000-analysis_HM_truth.h5",
-    #             analysish5=path+"/"+entry+"/output_0_0000-analysis_truth.h5",
-    #             outfile="npyfiles/beam/"+entry+".npy",
-    #             assign_truth=True,
-    #         )
-
-    # main(mode=True,HMh5="kaons_100/output_0_0000-analysis_HM_truth.h5",analysish5= 'kaons_100/output_0_0000-analysis_truth.h5',outfile='npyfiles/test_K_100_truth.npy',assign_truth=True)
-
-    # # main(mode=True,HMh5="kaons_100/output_0_0000-analysis_HM_truth.h5",analysish5= 'kaons_100/output_0_0000-analysis_truth.h5',outfile='npyfiles/test_K_100.npy')
-
-    # main(mode=True,HMh5="lambdas_100/output_0_0000-analysis_HM_truth.h5",analysish5= 'lambdas_100/output_0_0000-analysis_truth.h5',outfile='npyfiles/test_L_100_truth.npy',assign_truth=True)
-    # main(mode=True,HMh5="lambdas_100/output_0_0000-analysis_HM_truth.h5",analysish5= 'lambdas_100/output_0_0000-analysis_truth.h5',outfile='npyfiles/test_L_100.npy')
