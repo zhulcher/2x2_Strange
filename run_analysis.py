@@ -14,7 +14,7 @@ from spine.io.core.read import HDF5Reader
 from spine.data import Meta as Met
 
 
-def closest_reco_particle_to_truth_start(p:Particle,particles:list[Particle],truth_particles:list[TruthParticle],skip:RecoParticle|NoneType=None)->Particle:
+def closest_reco_particle_to_truth_start(p:ParticleType,particles:list[ParticleType],truth_particles:list[TruthParticle],skip:RecoParticle|NoneType=None)->ParticleType:
     if type(p)==TruthParticle:
         return p
     assert type(p)==RecoParticle
@@ -44,7 +44,7 @@ def closest_reco_particle_to_truth_start(p:Particle,particles:list[Particle],tru
             closest_to_start=particles[i]
             best_dist=dist
     # if closest_to_start is None: return p
-    assert closest_to_start is not None
+    # assert closest_to_start is not None
     return closest_to_start
 
 
@@ -75,18 +75,12 @@ def main(HMh5,analysish5,mode:bool=True,outfile='',compare_truth="True"):
 
     print("starting")
     # process_codes=[]
-
+    reader=None
     if USE_HM: reader = HDF5Reader(HMh5) #set the file name
     for ENTRY_NUM in range(len(driver)):
         print(ENTRY_NUM)
         data = driver.process(entry=ENTRY_NUM)
-
-        if USE_HM:
-            if mode:
-                sparse3d_pcluster_semantics_HM=reader[ENTRY_NUM]['seg_label']
                 
-            else:
-                sparse3d_pcluster_semantics_HM=reader[ENTRY_NUM]['segmentation']
                 # perm = np.lexsort(data['points'].T)
 
         
@@ -96,12 +90,12 @@ def main(HMh5,analysish5,mode:bool=True,outfile='',compare_truth="True"):
         # HIP=1
         # MIP=2
         if mode:
-            particles:list[Particle] =data['truth_particles']
-            interactions:list[Interaction]=data['truth_interactions']
+            particles:list[ParticleType] =data['truth_particles']
+            interactions:list[InteractionType]=data['truth_interactions']
             
         else:
-            particles:list[Particle] =data['reco_particles']
-            interactions:list[Interaction] =data['reco_interactions']
+            particles:list[ParticleType] =data['reco_particles']
+            interactions:list[InteractionType] =data['reco_interactions']
 
         truth_particles:list[TruthParticle] =data['truth_particles']
         truth_interactions:list[TruthInteraction]=data['truth_interactions']
@@ -111,8 +105,15 @@ def main(HMh5,analysish5,mode:bool=True,outfile='',compare_truth="True"):
 
         perm_inverse=None
         HM_pred=None
-        if mode and USE_HM:
 
+        if USE_HM and not mode:
+            assert reader is not None
+            sparse3d_pcluster_semantics_HM=reader[ENTRY_NUM]['segmentation']
+
+
+        if USE_HM and mode:
+            assert reader is not None
+            sparse3d_pcluster_semantics_HM=reader[ENTRY_NUM]['seg_label']
             index_set=set({})
             for p in particles:
                 for i in p.index:
@@ -320,7 +321,7 @@ def main(HMh5,analysish5,mode:bool=True,outfile='',compare_truth="True"):
             predicted_K_mu_mich+=[PredKaonMuMich(ENTRY_NUM,hip_candidate,particles,interactions,HM_pred,truth=Truth_K,reason=reason,truth_list=truth_list,truth_particles=truth_particles,truth_interactions=truth_interactions)]
         # print("starting lambda")
 
-        if mode: 
+        if mode:
             existing_parent_track_ids=Counter([p.parent_track_id for p in particles])
             existing_track_ids=Counter([p.track_id for p in particles])
         else:

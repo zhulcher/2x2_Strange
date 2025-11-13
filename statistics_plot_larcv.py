@@ -553,9 +553,12 @@ for c in [[r'primary $K^+$','with single MIP decay: '],[r'primary $\Lambda$',r'w
 
 
 
-    if len(tot[tot<cutoff]): (n, bins, patches)=plt.hist(tot[tot<cutoff],label=c[0]+f': {round(len(tot)* scaling)}',bins=30,weights=np.ones_like(tot[tot<cutoff]) * scaling)
-    if len(fid[fid<cutoff]): plt.hist(fid[fid<cutoff],label=f'with fiducial vertex: {round(len(fid)* scaling)}',bins=bins,weights=np.ones_like(fid[fid<cutoff]) * scaling)
-    if len(dec[dec<cutoff]): plt.hist(dec[dec<cutoff],label=c[1]+f': {round(len(dec)* scaling)}',bins=bins,weights=np.ones_like(dec[dec<cutoff]) * scaling)
+    if len(tot[tot<cutoff]):
+        (n, bins, patches)=plt.hist(tot[tot<cutoff],label=c[0]+f': {round(len(tot)* scaling)}',bins=30,weights=np.ones_like(tot[tot<cutoff]) * scaling)
+        if len(fid[fid<cutoff]): 
+            plt.hist(fid[fid<cutoff],label=f'with fiducial vertex: {round(len(fid)* scaling)}',bins=bins,weights=np.ones_like(fid[fid<cutoff]) * scaling)
+            if len(dec[dec<cutoff]):
+                plt.hist(dec[dec<cutoff],label=c[1]+f': {round(len(dec)* scaling)}',bins=bins,weights=np.ones_like(dec[dec<cutoff]) * scaling)
 
 # plt.hist(lam_cont,label=f'with children containment: {round(len(lam_cont)}',bins=bins)
 
@@ -674,7 +677,6 @@ conz=[x[2] for x in contained+uncontained]
 print(min(conx),max(conx),min(cony),max(cony),min(conz),max(conz))
 
 from itertools import product
-from tqdm import tqdm
 
 def optimize_containment_from_lists(contained_vertices, uncontained_vertices, 
                                     z_bounds, w_bounds, 

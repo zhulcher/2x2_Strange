@@ -1,6 +1,7 @@
 from save_plotly import *
 import matplotlib.pyplot as plt
 from analysis.analysis_cuts import *
+from tqdm import tqdm
 
 plt.rcParams.update({
     'figure.figsize': (10, 6),            # Larger figure size

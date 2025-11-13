@@ -41,13 +41,7 @@ kaon_pass_order_truth={
             # "Bragg Peak HIP": 1,
             # r"HIP $K^+ or >0 Scatter$":True,
             # "Correct MIP TPC Assoc.":True,
-            "Valid MIP Len":
-                    {
-
-                        "mu_len":[44,60],
-                        "pi_len":[20,35],
-                    },
-                # },
+            "Valid MIP Len":25 + 35*100 + 48*100**2 + 60*100**3,
 
             "Forward HIP":1,
             "Separable MIP":np.pi/12,
@@ -66,11 +60,7 @@ kaon_pass_order_reco={
             rf"Primary $K^+$":True,
             "Initial HIP":True,
             # "Correct HIP TPC Assoc.":True,
-            "Valid MIP Len":
-                    {
-                        "mu_len":[48,60],
-                        "pi_len":[25,35],
-                    },
+            "Valid MIP Len":25 + 35*100 + 48*100**2 + 60*100**3,
             "Michel Child":True, #TODO characterize the MIP distance in x using drift time
 
             "Connected Non-Primary MIP":True,
@@ -344,7 +334,6 @@ def main():
         # assert os.path.isfile(args.single_file)
         assert args.single_file in files
         args_list = [(args.single_file, d0, directory2)]
-    from tqdm import tqdm  # optional, for progress bar
 
     results:list[tuple[str,list[PredKaonMuMich],list]] = []
     
@@ -353,7 +342,6 @@ def main():
     #         results.append(result)
 
     from concurrent.futures import ProcessPoolExecutor, as_completed,ThreadPoolExecutor
-    from tqdm import tqdm
 
     results = []
     max_cpus = os.cpu_count()
@@ -586,12 +574,14 @@ def main():
 
                     is_true=mu.truth*is_contained(mu.truth_interaction_vertex,margin=margin0)*([key,mu.truth_interaction_id] in valid_ints)#*((key,mu.truth_interaction_id) in K_to_pi_list)
                     if is_true:
+                        assert mu.truth_hip is not None
                         is_true*=(mu.truth_hip.ke>csda_ke_lar(min_len,KAON_MASS))*(mu.truth_hip.ancestor_creation_process=="primary")
 
-                    truth_hip=mu.truth_hip
+                    # truth_hip=mu.truth_hip
 
                     if is_true:
-                        K_dir_before[0]+=[angle_between(mu.hip.momentum,truth_hip.momentum)]
+                        assert mu.truth_hip is not None
+                        K_dir_before[0]+=[angle_between(mu.hip.momentum,mu.truth_hip.momentum)]
                         K_dir_before[1]+=[mu.hip.reco_length]
                     
                     pc=mu.pass_cuts(kaon_pass_order)
@@ -646,8 +636,8 @@ def main():
                         # K_mom[0]+=[np.linalg.norm(fixed_prot_mom)]
                         # K_mom[1]+=[truth_hip.p]
 
-                        assert truth_hip is not None
-                        K_dir[0]+=[angle_between(mu.hip.momentum,truth_hip.momentum)]
+                        assert mu.truth_hip is not None
+                        K_dir[0]+=[angle_between(mu.hip.momentum,mu.truth_hip.momentum)]
                         K_dir[1]+=[mu.hip.reco_length]
                         if len(mu.match_overlaps)>0 or type(mu.hip)==TruthParticle:
                             vertex_displacement+=[np.linalg.norm(mu.truth_interaction_vertex-inter)]
@@ -655,7 +645,7 @@ def main():
 
                             if np.linalg.norm(mu.truth_interaction_vertex-inter)>20:
                                 quick_save('/error_vertex_true_to_reco_dist/')
-                        if angle_between(mu.hip.momentum,truth_hip.momentum)>np.pi/2 and mu.hip.reco_length>min_len:
+                        if angle_between(mu.hip.momentum,mu.truth_hip.momentum)>np.pi/2 and mu.hip.reco_length>min_len:
                             quick_save('/error_hip_direction/')
 
                     
@@ -692,9 +682,9 @@ def main():
                     
                     kaon_len[is_true][good_mip_len]+= [mu.hip.reco_length]
 
-                    if truth_hip is not None:
+                    if mu.truth_hip is not None:
 
-                        forward_disc[is_true][good_mip_forward]+= [angle_between(truth_hip.momentum,np.array([0,0,1]))]
+                        forward_disc[is_true][good_mip_forward]+= [angle_between(mu.truth_hip.momentum,np.array([0,0,1]))]
                         primary_kp[is_true][good_prim]+=[np.linalg.norm(mu.hip.start_point-mu.reco_vertex)]
 
 
@@ -835,7 +825,7 @@ def main():
                                     
                                     mip_truth0=int((truth_mip.ancestor_pdg_code==321)*(truth_mip.parent_pdg_code==321)*(truth_mip.creation_process=="Decay")*(abs(truth_mip.pdg_code) in [211,13])*valid_decay)
                                 
-                                mip_truth=mip_truth0*([key,mu.truth_interaction_id] in valid_ints)
+                                mip_truth1=mip_truth0*([key,mu.truth_interaction_id] in valid_ints)
                                             
 
                                         # for g in mu.truth_pi0_gamma:
@@ -845,9 +835,9 @@ def main():
                                 # if len(passing_mu)>1:
                                     # quick_save('/error_mip_break')
                                 # print(passing_mu[1])
-                                muon_len[mip_truth][passing_mu[1] in [["Valid MIP Len"],[]]] += [plen]
+                                muon_len[mip_truth1][passing_mu[1] in [["Valid MIP Len"],[]]] += [plen]
 
-                                if (not mip_truth) and passing_mu[1]==[] and mip_truth0:
+                                if (not mip_truth1) and passing_mu[1]==[] and mip_truth0:
                                     quick_save('/good_mip_bad_city/')
                             # print(pk[2])
 
@@ -1064,7 +1054,7 @@ def main():
                         if not mu.hip.is_matched:
                             quick_save(f'/backgrounds/unmatched_hip_{plen>=40}')
                         else:
-                            assert truth_hip is not None
+                            assert mu.truth_hip is not None
                             assert passing_mip is not None
 
                             # truth_mip=None
@@ -1086,7 +1076,7 @@ def main():
                             elif passing_mip.match_ids[0] in mu.other_mip_dict and passing_mip.match_ids[0] not in mu.decay_mip_dict:
                                 quick_save(f'/backgrounds/secondary_kaon_production_good_luck_with_that')
 
-                            elif passing_mip.match_ids[0] in mu.decay_mip_dict and truth_hip.pdg_code!=321:
+                            elif passing_mip.match_ids[0] in mu.decay_mip_dict and mu.truth_hip.pdg_code!=321:
                                 quick_save(f'/backgrounds/good_KDAR_bad_primary')
 
                             # elif mip_truth is None:
@@ -1098,47 +1088,47 @@ def main():
                             #     quick_save(f'/backgrounds/secondary_kaon_without_primary_{truth_hip.pdg_code}_{plen>=40}')
                             
                             
-                            elif truth_hip.ancestor_pdg_code==2212:
+                            elif mu.truth_hip.ancestor_pdg_code==2212:
                                 quick_save(f'/backgrounds/prot_anc_{plen>=40}')
-                            elif truth_hip.ancestor_pdg_code==-321:
+                            elif mu.truth_hip.ancestor_pdg_code==-321:
                                 quick_save(f'/backgrounds/antikp_anc_{plen>=40}')
-                            elif truth_hip.pdg_code==321 and not truth_hip.is_primary and truth_hip.ancestor_pdg_code==321:
+                            elif mu.truth_hip.pdg_code==321 and not mu.truth_hip.is_primary and mu.truth_hip.ancestor_pdg_code==321:
                                 quick_save(f'/backgrounds/non_primary_kp_w_kp_ancestor_{plen>=40}')
-                            elif truth_hip.pdg_code==211:
+                            elif mu.truth_hip.pdg_code==211:
                                 quick_save(f'/backgrounds/overwritten_pi_{plen>=40}')
-                            elif truth_hip.ancestor_pdg_code==311:
+                            elif mu.truth_hip.ancestor_pdg_code==311:
                                 quick_save(f'/backgrounds/k0_conv_{plen>=40}')
-                            elif truth_hip.pdg_code==3222:
+                            elif mu.truth_hip.pdg_code==3222:
                                 quick_save(f'/backgrounds/sigmap_{plen>=40}')
-                            elif truth_hip.pdg_code==3112:
+                            elif mu.truth_hip.pdg_code==3112:
                                 quick_save(f'/backgrounds/sigmam_{plen>=40}')
                             
 
                             elif mu.truth_interaction_nu_id==-1:
                                 quick_save(f'/backgrounds/cosmics_{plen>=40}')
 
-                            elif truth_hip.pdg_code==2212 and truth_hip.parent_pdg_code in [3222,3112]:
-                                quick_save(f'/backgrounds/proton_from_sigma_{truth_hip.parent_pdg_code}_{plen>=40}')
+                            elif mu.truth_hip.pdg_code==2212 and mu.truth_hip.parent_pdg_code in [3222,3112]:
+                                quick_save(f'/backgrounds/proton_from_sigma_{mu.truth_hip.parent_pdg_code}_{plen>=40}')
 
-                            elif truth_hip.pdg_code==321 and truth_hip.ancestor_pdg_code!=321:
-                                quick_save(f'/backgrounds/non_primary_kp_non_kp_ancestor_{truth_hip.ancestor_pdg_code}_{plen>=40}')
+                            elif mu.truth_hip.pdg_code==321 and mu.truth_hip.ancestor_pdg_code!=321:
+                                quick_save(f'/backgrounds/non_primary_kp_non_kp_ancestor_{mu.truth_hip.ancestor_pdg_code}_{plen>=40}')
 
 
                             # elif truth_hip.pdg_code==321 and truth_hip.is_primary and closest_reco_particle_to_truth_start(hip_candidate,particles,truth_particles)==hip_candidate
-                            elif truth_hip.pdg_code!=321 and truth_hip.is_primary:
-                                quick_save(f'/backgrounds/primary_non_kp_{truth_hip.pdg_code}_{plen>=40}')
+                            elif mu.truth_hip.pdg_code!=321 and mu.truth_hip.is_primary:
+                                quick_save(f'/backgrounds/primary_non_kp_{mu.truth_hip.pdg_code}_{plen>=40}')
 
                             
 
-                            elif truth_hip.pdg_code!=321 and truth_hip.ancestor_pdg_code!=321 and not truth_hip.is_primary:
-                                quick_save(f'/backgrounds/non_primary_{truth_hip.pdg_code}_w_parent_{truth_hip.parent_pdg_code}_w_ancestor_{truth_hip.ancestor_pdg_code}_{plen>=40}')
+                            elif mu.truth_hip.pdg_code!=321 and mu.truth_hip.ancestor_pdg_code!=321 and not mu.truth_hip.is_primary:
+                                quick_save(f'/backgrounds/non_primary_{mu.truth_hip.pdg_code}_w_parent_{mu.truth_hip.parent_pdg_code}_w_ancestor_{mu.truth_hip.ancestor_pdg_code}_{plen>=40}')
 
                             else:
                                 quick_save(f'/backgrounds/unknown_{mu.reason}_{plen>=40}')
                             
                     if is_true and mpf!="":
-                        assert truth_hip is not None
-                        if not is_contained(truth_hip.points,margin=3):
+                        assert mu.truth_hip is not None
+                        if not is_contained(mu.truth_hip.points,margin=3):
                             quick_save('/missing/Kaon_Uncontained')
 
                         
@@ -1416,12 +1406,14 @@ def main():
                     plt.hist(help[0][actual][True], bins=list(bins), label=rf"{actual} $K^+$ Decay Interactions",alpha=.7)
                 # count+=1
             if help[2]=="Valid MIP Len":
-
-                #         if "mu_len" in kaon_pass_order["Valid MIP Len"]:
-                mu_len=kaon_pass_order["Valid MIP Len"]["mu_len"]
+                n=kaon_pass_order["Valid MIP Len"]
+                x1 = n % 100
+                x2 = (n // 100) % 100
+                x3 = (n // 100**2) % 100
+                x4 = (n // 100**3) % 100
+                mu_len=[x3,x4]
                 plt.axvspan(mu_len[0], mu_len[1], color='red', alpha=0.2, label=r"$K^+\rightarrow \nu\mu$ band")
-                        # if "pi_len" in kaon_pass_order["Valid MIP Len"]:
-                pi_len=kaon_pass_order["Valid MIP Len"]["pi_len"]
+                pi_len=[x1,x2]
                 plt.axvspan(pi_len[0], pi_len[1], color='blue', alpha=0.2, label=r"$K^+\rightarrow \pi^+\pi^0$ band")
             # count=2
             if help[2] in ["Kaon Len","Come to Rest","Close to Vertex","closest_FM","Bragg Peak HIP","Forward HIP"] and help[2] in kaon_pass_order:
@@ -1462,7 +1454,6 @@ def main():
                 # We duplicate the counts to match bin_edges length for 'post' alignment
                 step_edges = np.repeat(bin_edges, 2)[1:-1]
                 step_heights = np.repeat(counts, 2)
-                # if help[2] not in ["closest_FM","Valid MIP Len"]:
                 plt.plot(step_edges, step_heights,
                         color=plt.rcParams['axes.prop_cycle'].by_key()['color'][3],
                         label=f"all {actual}",alpha=.5)

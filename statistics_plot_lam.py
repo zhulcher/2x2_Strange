@@ -259,7 +259,6 @@ def main():
         results:list[tuple[str,list[Pred_Neut],list]] = []
 
     from concurrent.futures import ProcessPoolExecutor, as_completed,ThreadPoolExecutor
-    from tqdm import tqdm
 
     results = []
     max_cpus = os.cpu_count()
@@ -418,7 +417,12 @@ def main():
                     # if l.mass2 < 0:
                     #     print("THIS IS VERY BAD")
 
+                    fixed_prot_mom=np.float64(l.real_hip_momentum_reco)
+                    fixed_pi_mom=np.float64(l.real_mip_momentum_reco)
+
                     if is_true:
+                        assert truth_hip is not None
+                        assert truth_mip is not None
                         if len(l.hm_pred): HM_acc_prot += [l.hm_pred[l.hip.id][HIP_HM]/(l.hm_pred[l.hip.id][HIP_HM]+l.hm_pred[l.hip.id][MIP_HM])]
                         if len(l.hm_pred): HM_acc_pi += [l.hm_pred[l.mip.id][MIP_HM]/(l.hm_pred[l.mip.id][HIP_HM]+l.hm_pred[l.mip.id][MIP_HM])]
                         prot_primary[int(l.hip.is_primary)]+=[decaylen]
@@ -453,8 +457,7 @@ def main():
                     
 
 
-                    fixed_prot_mom=l.real_hip_momentum_reco.astype(np.float64)
-                    fixed_pi_mom=l.real_mip_momentum_reco.astype(np.float64)
+                    
 
 
                     if type(l.hip)==TruthParticle:
@@ -463,7 +466,7 @@ def main():
                         if truth_mip.ancestor_pdg_code in [3122,3212] and truth_hip.ancestor_pdg_code in [3122,3212] and l.hip.pdg_code==2212 and truth_mip.pdg_code==-211 and truth_hip.parent_pdg_code==3122 and truth_mip.parent_pdg_code==3122 and process_map[truth_hip.creation_process]=='6::201' and process_map[truth_mip.creation_process]=='6::201':
                             primary_phot=[p for p in l.particles if p.is_primary and p.pdg_code==22]
                             for p in primary_phot:
-
+                                assert type(p)==TruthParticle
                                 sigma_mass[p.ancestor_pdg_code==3212]+=[mom_to_mass(fixed_prot_mom+fixed_pi_mom,p.reco_momentum,LAM_MASS,0)]
 
 
@@ -506,8 +509,8 @@ def main():
                         elif truth_hip is None:
                             quick_save('/backgrounds/no_HIP_match')
                         else:
-                            assert truth_hip is TruthParticle
-                            assert truth_mip is TruthParticle
+                            assert type(truth_hip)==TruthParticle
+                            assert type(truth_mip)==TruthParticle
 
 
                             if truth_mip.ancestor_pdg_code==3212:
@@ -968,7 +971,7 @@ def main():
 
     tau_max=fakecuts["tau_max"]
     tau_min=0.2631
-    from scipy.optimize import curve_fit
+    # from scipy.optimize import curve_fit
 
     # def exp_con_cdf0(t, tau,s):
     #     return -s*np.exp(-t/tau)#(1-s)*t/(tau_max-tau_min)
@@ -1168,7 +1171,7 @@ def main():
 
 
             mine=np.array(help[0][True][True]+help[0][True][False]+help[0][False][True]+help[0][False][False])
-            if help[3]=="lam_mass":
+            # if help[3]=="lam_mass":
                 # (n, bins, patches)=plt.hist(mine[mine<=1500], bins=50)
                 # plt.clf()
 
@@ -1177,15 +1180,15 @@ def main():
                 #     plt.hist(help[0][actual][True], bins=list(bins), label=rf"all {actual}: $\mu$= "+ str(round_to_2(np.mean(help[0][actual][True])))+ r", $\sigma$= "+ str(round_to_2(np.std(help[0][actual][True]))),alpha=.7)
                 # plt.axvline(x = (PION_MASS+PROT_MASS), color = 'g', label = r'$M_{\pi^-}+M_{p} ['+str(round_to_2(PION_MASS+PROT_MASS))+' GeV]$',linestyle='--', linewidth=2,)
                 # plt.axvline(x = LAM_MASS, color = 'r', label = r'$M_{\Lambda} ['+str(round_to_2(LAM_MASS))+' GeV]$',linestyle='--', linewidth=2,)
-                pass
+                # pass
                 
-            else:
-                (n, bins, patches)=plt.hist(mine[mine<=10], bins=50)
-                plt.clf()
-                for actual in [False,True]:
-                    # print(help[0][actual][True])
-                    plt.hist(help[0][actual][True], bins=list(bins), label=f"{actual} after other cuts",alpha=.7)
-                plt.axvline(x=(fakecuts|lam_pass_order)[help[3]], color='red', linestyle='--', linewidth=2, label=f"cut value={(fakecuts|lam_pass_order)[help[3]]}")
+            # else:
+            (n, bins, patches)=plt.hist(mine[mine<=10], bins=50)
+            plt.clf()
+            for actual in [False,True]:
+                # print(help[0][actual][True])
+                plt.hist(help[0][actual][True], bins=list(bins), label=f"{actual} after other cuts",alpha=.7)
+            plt.axvline(x=(fakecuts|lam_pass_order)[help[3]], color='red', linestyle='--', linewidth=2, label=f"cut value={(fakecuts|lam_pass_order)[help[3]]}")
 
                 
                 
@@ -1313,8 +1316,8 @@ def main():
     # return bin_centers.tolist(), counts.tolist()
             print(bin_centers,counts)
 
-            popt, pcov = curve_fit(exp_con_pdf,bin_centers , counts,sigma=err, bounds=([.0000000001,0],[np.inf,np.inf]),p0=(1,.9),maxfev=1000000)
-            perr = np.sqrt(np.diag(pcov))
+            # popt, pcov = curve_fit(exp_con_pdf,bin_centers , counts,sigma=err, bounds=([.0000000001,0],[np.inf,np.inf]),p0=(1,.9),maxfev=1000000)
+            # perr = np.sqrt(np.diag(pcov))
 
 
             # Generate fitted CDF values

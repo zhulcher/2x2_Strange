@@ -11,12 +11,21 @@ SOFTWARE_DIR = '/sdf/group/neutrino/zhulcher/spine' #or wherever on sdf
 import sys
 # Set software directory
 sys.path.append(SOFTWARE_DIR)
-from spine.data.out import TruthParticle,RecoParticle,RecoInteraction,TruthInteraction
+
 from spine.utils.globals import DELTA_SHP, MUON_PID,PHOT_PID, PION_PID, PROT_PID,KAON_PID,KAON_MASS,PROT_MASS, PION_MASS,MICHL_SHP,TRACK_SHP,SHOWR_SHP,LOWES_SHP
 from spine.utils.geo.manager import Geometry
 from spine.utils.energy_loss import csda_ke_lar
 import numpy as np
 from numba import njit
+
+
+def is_truth(obj:object)->bool:
+    if "nu_id" in dir(obj):
+        return True
+    if "orig_interaction_id" in dir(obj):
+        return True
+    return False
+    
 
 
 NUMI_BEAM_DIR=[.388814672,-.058321970,.919468161]
@@ -84,11 +93,15 @@ MICHL_HM=MICHL_SHP
 LAM_MASS = 1115.683   # [MeV/c^2]
 SIG0_MASS = 1192.642  # [MeV/c^2]
 
-
-# Particle = RecoParticle | TruthParticle
 from typing import TypeAlias
-Interaction:TypeAlias= RecoInteraction | TruthInteraction
-Particle:TypeAlias = TruthParticle|RecoParticle
+from typing import TYPE_CHECKING
+
+from spine.data.out.interaction import RecoInteraction,TruthInteraction
+from spine.data.out.particle import TruthParticle,RecoParticle
+if TYPE_CHECKING:
+    
+    InteractionType:TypeAlias= "RecoInteraction | TruthInteraction"
+    ParticleType:TypeAlias = "TruthParticle|RecoParticle"
 
 
 Model="icarus"
@@ -112,7 +125,7 @@ if Model=="icarus":
     process_map["hBertiniCaptureAtRest"]="4::151"
 
 
-def reco_vert_hotfix(inter:Interaction):
+def reco_vert_hotfix(inter:"InteractionType"):
     if type(inter)==TruthInteraction:
         return inter.reco_vertex
     elif type(inter)==RecoInteraction:
@@ -121,7 +134,7 @@ def reco_vert_hotfix(inter:Interaction):
         raise Exception("type not allowed",type(inter))
     
 
-def truth_interaction_id_hotfix(inter:Interaction):
+def truth_interaction_id_hotfix(inter:"InteractionType"):
     if type(inter)==TruthInteraction:
         return inter.id
     elif type(inter)==RecoInteraction:
@@ -132,15 +145,14 @@ def truth_interaction_id_hotfix(inter:Interaction):
         raise Exception("type not allowed",type(inter))
 
 
-def is_primary_hotfix(p:Particle)->bool:
+def is_primary_hotfix(p:"ParticleType")->bool:
 
     if type(p)==TruthParticle:
         if abs(p.pdg_code) in [3222,3112] and process_map[p.creation_process]=="primary":
             return True
     return p.is_primary
 
-def HM_pred_hotfix(p:Particle,hm_pred:dict[int,np.ndarray]|NoneType=None,old=False)->int:
-
+def HM_pred_hotfix(p:"ParticleType",hm_pred:dict[int,np.ndarray]|NoneType=None,old=False)->int:
 
     if old and hm_pred is not None:
         if type(p)==TruthParticle:
@@ -207,25 +219,24 @@ class PredKaonMuMich:
     ----------
     mip_len_base: float
         len attribute of the particle object
-    potential_michels: list[Particle]
+    potential_michels: list["ParticleType"]
         list of michel candidates corresponding to this mip candidate
     truth: bool
         is this a truth muon coming from a kaon
     """
 
     truth:bool
-    # mip:Particle
 
     # true_signal:bool
-    potential_kaons:list[tuple[Particle,list[tuple[Particle,list[str]]]]]
+    potential_kaons:list[tuple["ParticleType",list[tuple["ParticleType",list[str]]]]]
 
     def __init__(
         self,
         # pot_k: PotK,
         ENTRY_NUM:int,
-        K_hip: Particle,
-        particles: list[Particle],
-        interactions: list[Interaction],
+        K_hip:"ParticleType",
+        particles: list["ParticleType"],
+        interactions: list["InteractionType"],
         # hm_acc:list[float],
         hm_pred:dict[int,np.ndarray],
         
@@ -263,16 +274,18 @@ class PredKaonMuMich:
         
 
         self.fm_interactions=[(reco_vert_hotfix(i),i.is_flash_matched,i.id) for i in interactions]
-        if self.truth and type(Particle)==TruthParticle:
-            assert abs(self.hip.pdg_code)==321,self.hip.pdg_code
-        interaction=interactions[self.hip.interaction_id]
-        self.particles:list[Particle]=copy.deepcopy([p for p in interaction.particles if (len(p.points)>=3 or p.shape in [MICHL_SHP]) and is_contained(p.start_point,margin=-5) and (p.shape in [MICHL_SHP,SHOWR_SHP,LOWES_SHP,DELTA_SHP] or is_contained(p.end_point,margin=-5))])
+        
+        interaction=interactions[K_hip.interaction_id]
+        self.particles:list["ParticleType"]=copy.deepcopy([p for p in interaction.particles if (len(p.points)>=3 or p.shape in [MICHL_SHP]) and is_contained(p.start_point,margin=-5) and (p.shape in [MICHL_SHP,SHOWR_SHP,LOWES_SHP,DELTA_SHP] or is_contained(p.end_point,margin=-5))])
         ids=[p.id for p in self.particles]
         if K_hip.id in ids:
             self.hip=self.particles[ids.index(K_hip.id)]
         else:
             self.hip=copy.deepcopy(K_hip)
         self.potential_kaons=[]
+
+        if self.truth and type(self.hip)==TruthParticle:
+            assert abs(self.hip.pdg_code)==321,self.hip.pdg_code
 
         self.is_flash_matched=interaction.is_flash_matched
         # interaction.
@@ -362,11 +375,8 @@ class PredKaonMuMich:
         
 
         self.real_K_momentum=K_hip.reco_momentum
-        if self.truth and type(Particle)==TruthParticle:
-            assert type(K_hip)==TruthParticle
+        if self.truth and type(K_hip)==TruthParticle:
             self.real_K_momentum=momentum_from_children_ke(K_hip,particles,KAON_MASS)
-
-        if type(K_hip)==TruthParticle and self.truth:
             assert HM_pred_hotfix(K_hip,hm_pred)==HIP_HM,(HM_pred_hotfix(K_hip,hm_pred),HIP_HM,K_hip.id,K_hip.pdg_code)
         # done=False
         # while not done: #this loop goes over all of the hips connected to the end of the kaon, and constructs a hadronic group which hopefully contains the kaon end. 
@@ -419,15 +429,15 @@ class PredKaonMuMich:
         # else: print("good end")
     # @profile
     def pass_cuts(self,cuts:dict)->bool:#dict[str,dict[str,bool|list]|bool]
-        original_hip_id=self.hip.id
-        if self.hip in self.particles:
-            h=self.particles.index(self.hip)
-        self.particles=copy.deepcopy(self.particles)
+        # original_hip_id=self.hip.id
+        # if self.hip in self.particles:
+        #     h=self.particles.index(self.hip)
+        # self.particles=copy.deepcopy(self.particles)
 
-        if self.hip in self.particles:
-            self.hip=self.particles[h]
-        else:
-            self.hip=copy.deepcopy(self.hip)
+        # if self.hip in self.particles:
+        #     self.hip=self.particles[h]
+        # else:
+        #     self.hip=copy.deepcopy(self.hip)
 
 
         
@@ -449,11 +459,11 @@ class PredKaonMuMich:
             MIPS_AND_MICHELS_2(self.particles,skip=[self.hip])
             # CORRECT_BACKWARDS(self.particles,skip=[self.hip.id])
 
-            self.particles:list[Particle]=[p for p in self.particles if (p.shape!=TRACK_SHP or p==self.hip or p.reco_length>min_len/2)]
+            self.particles:list["ParticleType"]=[p for p in self.particles if (p.shape!=TRACK_SHP or p==self.hip or p.reco_length>min_len/2)]
                 
             if False:
-                LOOSE_MICHLS:list[Particle]=[p for p in self.particles if HM_pred_hotfix(p,self.hm_pred) in [MICHL_SHP,LOWES_SHP,SHOWR_SHP] and p.ke<50 and len(p.points)>3]#
-                # PROBABLE_MIPS:list[Particle]=[]
+                LOOSE_MICHLS:list["ParticleType"]=[p for p in self.particles if HM_pred_hotfix(p,self.hm_pred) in [MICHL_SHP,LOWES_SHP,SHOWR_SHP] and p.ke<50 and len(p.points)>3]#
+                # PROBABLE_MIPS:list["ParticleType"]=[]
                 for p in self.particles:
                     if p.pid in [MUON_PID,PION_PID]:
                         if (np.sum(np.array([norm3d(p.start_point-m.start_point) for m in LOOSE_MICHLS])<10*min_len)>0
@@ -473,7 +483,7 @@ class PredKaonMuMich:
                             # if not p.is_primary:PROBABLE_MIPS+=[p]
                         # elif (not np.any(np.array([norm3d(p.start_point-m.start_point) for m in STRICT_MICHLS])<3*min_len)) and np.any(np.array([norm3d(p.end_point-m.start_point) for m in STRICT_MICHLS])<3*min_len):
                             # if not p.is_primary:PROBABLE_MIPS+=[p]
-                PRIMARY_ELECTRONS:list[Particle]=[p for p in self.particles if HM_pred_hotfix(p,self.hm_pred) in [SHOWR_SHP] and (is_primary_hotfix(p)) and p.ke>200]#
+                PRIMARY_ELECTRONS:list["ParticleType"]=[p for p in self.particles if HM_pred_hotfix(p,self.hm_pred) in [SHOWR_SHP] and (is_primary_hotfix(p)) and p.ke>200]#
                 for p in self.particles:
                     if p.pid in [MUON_PID,PION_PID,PROT_PID,KAON_PID]:
                         if np.any(np.array([norm3d(p.end_point-m.start_point) for m in PRIMARY_ELECTRONS])<min_len) and not np.any(np.array([norm3d(p.start_point-m.start_point) for m in PRIMARY_ELECTRONS])<min_len):
@@ -504,9 +514,9 @@ class PredKaonMuMich:
 
             done=False
             while not done:
-                OBVIOUS_MUONS:list[Particle]=[p for p in self.particles if p.pid in [MUON_PID] and p!=self.hip]
+                OBVIOUS_MUONS:list["ParticleType"]=[p for p in self.particles if p.pid in [MUON_PID] and p!=self.hip]
                 PIONS=[p for p in self.particles if p.pid in [PION_PID] and p!=self.hip]
-                STRICT_MICHLS:list[Particle]=[p for p in self.particles if HM_pred_hotfix(p) in [MICHL_SHP,LOWES_SHP] and (not is_primary_hotfix(p))]#
+                STRICT_MICHLS:list["ParticleType"]=[p for p in self.particles if HM_pred_hotfix(p) in [MICHL_SHP,LOWES_SHP] and (not is_primary_hotfix(p))]#
                 done=True
                 for p1 in OBVIOUS_MUONS.copy():
                     p1em=np.any(np.array([np.min(cdist([p1.end_point],m.points)) for m in STRICT_MICHLS])<2*min_len)
@@ -557,8 +567,13 @@ class PredKaonMuMich:
                 if not done:continue
                     
                 if "Valid MIP Len" in cuts:
-                    pi_bounds=cuts["Valid MIP Len"]["pi_len"]
-                    mu_bounds=cuts["Valid MIP Len"]["mu_len"]
+                    n=cuts["Valid MIP Len"]
+                    x1 = n % 100
+                    x2 = (n // 100) % 100
+                    x3 = (n // 100**2) % 100
+                    x4 = (n // 100**3) % 100
+                    pi_bounds=[x1,x2]
+                    mu_bounds=[x3,x4]
                     # potential_mips=[p for p in self.particles if p.pid in [MUON_PID,PION_PID] and p!=self.hip and ((pi_bounds[0]<p.reco_length and p.reco_length<pi_bounds[1]) or (mu_bounds[0]<p.reco_length and p.reco_length<mu_bounds[1]))]
                     potential_mips=[p for p in self.particles if p.pid in [MUON_PID,PION_PID]]
                     for p1 in potential_mips:
@@ -767,7 +782,7 @@ class PredKaonMuMich:
         K_plus_cut_cascade(self,cuts,self.hip,self.truth_interaction_nu_id,self.potential_kaons,self.pass_failure,self.decay_mip_dict,self.kaon_path)
         assert (self.hip.is_primary)==primary_hip
         
-        assert self.hip.id==original_hip_id
+        # assert self.hip.id==original_hip_id
         # if self.truth:
             # print(self.hip.id,self.hip.is_primary)
 
@@ -803,9 +818,9 @@ class Pred_Neut:
     #     along with the distance of closest approach of these lines (dist)
     dir_acos:float
         arccos of the direction with the beam direction
-    mip: Particle
+    mip:"ParticleType"
         candidate pion
-    hip: Particle
+    hip:"ParticleType"
         candidate proton
     """
 
@@ -816,8 +831,8 @@ class Pred_Neut:
     # coll_dist: list[float]
     dir_acos: float
     truth:bool
-    mip: Particle
-    hip: Particle
+    mip:"ParticleType"
+    hip:"ParticleType"
     mass1:float
     mass2:float
 
@@ -827,17 +842,17 @@ class Pred_Neut:
     def __init__(
         self,
         ENTRY_NUM:int,
-        hip:Particle,
-        mip:Particle,
-        particles:list[Particle],
-        interactions: list[Interaction],
+        hip:"ParticleType",
+        mip:"ParticleType",
+        particles:list["ParticleType"],
+        interactions: list["InteractionType"],
         hm_pred:dict[int,np.ndarray],
         truth:bool,
         reason:str,
         mass1:float,
         mass2:float,
-        truth_particles:list[Particle],
-        truth_interactions:list[Interaction]
+        truth_particles:list["ParticleType"],
+        truth_interactions:list["InteractionType"]
 
     ):
         """
@@ -845,13 +860,13 @@ class Pred_Neut:
 
         Parameters
         ----------
-        hip: Particle
+        hip:"ParticleType"
             hip particle object for convenience, this will be identified with particle/mass1
-        mip: Particle
+        mip:"ParticleType"
             mip particle object
-        particles: list[Particle]
+        particles: list["ParticleType"]
             list of particle objects for the event
-        interactions: list[Interaction]
+        interactions: list["InteractionType"]
             list of interactions for the event
         hm_pred: list[np.ndarray]
             hip mip semantic segmentation prediction for each particle
@@ -954,7 +969,7 @@ class Pred_Neut:
         # self.pi_extra_children=[]
         # self.prot_extra_children=[]
         
-        # self.pot_parent:list[tuple[Particle,bool]]=[]
+        # self.pot_parent:list[tuple["ParticleType",bool]]=[]
 
         self.truth_interaction_id=truth_interaction_id_hotfix(interaction)
 
@@ -970,7 +985,7 @@ class Pred_Neut:
         extra_children=[]
         self.pass_failure=[]
 
-        pot_parent:list[tuple[Particle,bool]]=[]
+        pot_parent:list[tuple["ParticleType",bool]]=[]
 
         guess_start=(self.hip.start_point+self.mip.start_point)/2
 
@@ -993,7 +1008,7 @@ class Pred_Neut:
 
 
 
-        # particles:list[Particle]=interaction.particles
+        # particles:list["ParticleType"]=interaction.particles
 
         for p in self.particles:
             # if p.interaction_id!=hip.interaction_id: continue
@@ -1003,7 +1018,7 @@ class Pred_Neut:
 
         # assert self.hip in particles,(self.hip.id,[i.id for i in particles])#,[i.id for i in interaction.primary_particles],type(interaction))
         # assert self.mip in particles,(self.mip.id,[i.id for i in particles])#,[i.id for i in interaction.primary_particles],type(interaction))
-        michels:list[Particle]=[p for p in self.particles if p.shape in [MICHL_SHP,LOWES_SHP]]
+        michels:list["ParticleType"]=[p for p in self.particles if p.shape in [MICHL_SHP,LOWES_SHP]]
         # assert norm3d(self.reco_vertex)>0,inter
 
 
@@ -1049,24 +1064,16 @@ class Pred_Neut:
 
             if c=="Primary HIP-MIP":
                 checked=True
-                if type(self.hip)==TruthParticle:
-                    if is_primary_hotfix(self.hip) or is_primary_hotfix(self.mip):# or HM_pred_hotfix(self.hip,self.hm_pred)!=HIP_HM or HM_pred_hotfix(self.mip,self.hm_pred)!=MIP_HM:
-                        # if self.truth: print("nonprimary hip/mip", norm3d(self.mip.start_point-self.hip.start_point))
-                        # if passed:
-                        self.pass_failure+=[c]
+                # if type(self.hip)==TruthParticle:
+                if is_primary_hotfix(self.hip) or is_primary_hotfix(self.mip):# or HM_pred_hotfix(self.hip,self.hm_pred)!=HIP_HM or HM_pred_hotfix(self.mip,self.hm_pred)!=MIP_HM:
+                    # if self.truth: print("nonprimary hip/mip", norm3d(self.mip.start_point-self.hip.start_point))
+                    # if passed:
+                    self.pass_failure+=[c]
                         
-                
-                elif type(self.hip)==RecoParticle:
-                    if self.hip.is_primary or self.mip.is_primary:#or HM_pred_hotfix(self.hip,self.hm_pred)!=HIP_HM or HM_pred_hotfix(self.mip,self.hm_pred)!=MIP_HM:
-                        self.pass_failure+=[c]
-                        
-                else:
-                    raise Exception()
 
             if c=="Valid Interaction":
                 checked=True
                 if type(self.hip)==TruthParticle:
-                    # assert type(interaction)==TruthInteraction
                     if self.truth_interaction_nu_id==-1:
                         self.pass_failure+=[c]
                         
@@ -1209,13 +1216,6 @@ class Pred_Neut:
                     self.pass_failure+=[c]
                     
 
-            if c=="Valid Len":
-                checked=True
-                assert type(self.hip)==RecoParticle
-                if self.hip.reco_length<=cuts[c] and self.mip.reco_length<=cuts[c]:
-                    self.pass_failure+=[c]
-                    
-
             if c=="":
                 checked=True
                 self.pass_failure+=[c]
@@ -1276,7 +1276,7 @@ class Pred_Neut:
     #         spine particle object
     #     mip: spine.Particle
     #         spine particle object
-    #     interactions: list[Interaction]
+    #     interactions: list["InteractionType"]
     #         list of interactions
 
     #     Returns
@@ -1340,7 +1340,7 @@ def is_contained(pos: np.ndarray, mode: str =full_containment, margin:float|list
 #     return Geo.get_closest_module(pos)
 
 
-def HIPMIP_pred(particle: Particle, sparse3d_pcluster_semantics_HM: np.ndarray,perm=None,mode=True) -> np.ndarray:
+def HIPMIP_pred(particle:"ParticleType", sparse3d_pcluster_semantics_HM: np.ndarray,perm=None,mode=True) -> np.ndarray:
     """
     Returns the semantic segmentation prediction encoded in sparse3d_pcluster_semantics_HM,
     where the prediction is not guaranteed unique for each cluster, for the particle object,
@@ -1383,7 +1383,7 @@ def HIPMIP_pred(particle: Particle, sparse3d_pcluster_semantics_HM: np.ndarray,p
         # print(HM_Pred,type(HM_Pred))
     return np.bincount(HM_Pred.astype(np.int64),minlength=HIP_HM+1)#st.mode(HM_Pred).mode
 
-# def HIPMIP_acc(particle: Particle, sparse3d_pcluster_semantics_HM: np.ndarray,perm=None,mode=True) -> float:
+# def HIPMIP_acc(particle:"ParticleType", sparse3d_pcluster_semantics_HM: np.ndarray,perm=None,mode=True) -> float:
 #     """
 #     Returns the fraction of voxels for a particle whose HM semantic segmentation prediction agrees
 #     with that of the particle itself as decided by HIPMIP_pred
@@ -1423,7 +1423,7 @@ def HIPMIP_pred(particle: Particle, sparse3d_pcluster_semantics_HM: np.ndarray,p
 #     return Counter(HM_Pred)[pred] / len(HM_Pred) if len(HM_Pred)!=0 else 0
 
 
-# def collision_distance(particle1: Particle, particle2: Particle,orientation:list[str]=["start","start"]):
+# def collision_distance(particle1:"ParticleType", particle2:"ParticleType",orientation:list[str]=["start","start"]):
 #     """
 #     Returns for each particle, the distance from the start point to the point along the vector start direction
 #     which is the point of closest approach to the other particle's corresponding line, along with the distance of closest approach.
@@ -1486,7 +1486,7 @@ def HIPMIP_pred(particle: Particle, sparse3d_pcluster_semantics_HM: np.ndarray,p
 
 
 
-# def lambda_AM(hip:Particle,mip:Particle)->list[float]:
+# def lambda_AM(hip:"ParticleType",mip:"ParticleType")->list[float]:
 #     '''
 #     Returns the P_T and the longitudinal momentum asymmetry corresponding to the Armenteros-Podolanski plot https://www.star.bnl.gov/~gorbunov/main/node48.html
 
@@ -1535,7 +1535,7 @@ def HIPMIP_pred(particle: Particle, sparse3d_pcluster_semantics_HM: np.ndarray,p
 
 
 
-def come_to_rest(p:Particle,mass=KAON_MASS)->float:
+def come_to_rest(p:"ParticleType",mass=KAON_MASS)->float:
     p_csda=csda_ke_lar(p.reco_length, mass)
     assert type(p_csda)==float
     # if not p_csda>0: return False
@@ -1546,10 +1546,10 @@ def come_to_rest(p:Particle,mass=KAON_MASS)->float:
     return p.calo_ke/p_csda-1
 
 
-def all_children_reco(p:Particle,particles:list[Particle],dist=min_len/2,ignore=[])->list[Particle]:
+def all_children_reco(p:"ParticleType",particles:list["ParticleType"],dist=min_len/2,ignore=[])->list["ParticleType"]:
 
     done=False
-    children:list[Particle]=[p]
+    children:list["ParticleType"]=[p]
     while done==False:
         done=True
         for pd in particles:
@@ -1559,7 +1559,7 @@ def all_children_reco(p:Particle,particles:list[Particle],dist=min_len/2,ignore=
                     done=False
     return children
 
-def momentum_from_children_ke_reco(p:Particle,particles:list[Particle],mass,ignore=[])->float:
+def momentum_from_children_ke_reco(p:"ParticleType",particles:list["ParticleType"],mass,ignore=[])->float:
     # print("running mfdke")
     ad=all_children_reco(p,particles,ignore=ignore)
     assert p in ad
@@ -1570,13 +1570,11 @@ def momentum_from_children_ke_reco(p:Particle,particles:list[Particle],mass,igno
     return np.sqrt(tke**2+2*mass*tke)*p.reco_start_dir
 
 
-def all_children(p:TruthParticle,particles:list[TruthParticle])->list[TruthParticle]:
-    out:list[TruthParticle]=[]
-    if type(p)==TruthParticle:
-        assert type(p)==TruthParticle,type(p)
+def all_children(p:"TruthParticle",particles:list["TruthParticle"])->list["TruthParticle"]:
+    out:list["TruthParticle"]=[]
     if len(p.children_id)==0:
         return [p]
-    to_explore:list[TruthParticle]=[p]
+    to_explore:list["TruthParticle"]=[p]
     while len(to_explore)!=0:
         curr=to_explore.pop()
         # if curr not in larcv_id_to_spine_id: continue
@@ -1591,9 +1589,9 @@ def all_children(p:TruthParticle,particles:list[TruthParticle])->list[TruthParti
     # start=
     return out
 
-def momentum_from_children_ke(p:TruthParticle,particles,mass)->float:
+def momentum_from_children_ke(p:"TruthParticle",particles,mass)->float:
     # print("running mfdke")
-    ad:list[TruthParticle]=all_children(p,particles)
+    ad:list["TruthParticle"]=all_children(p,particles)
     assert p in ad
 
     tke=sum([a.calo_ke for a in ad])
@@ -1647,8 +1645,9 @@ def closest_distance(pos1, mom1, pos2, mom2):
 
 # def 
 
-from spine.utils.tracking import get_track_segments
+
 def MCS_direction_prediction(p):
+    from spine.utils.tracking import get_track_segments
     _, dirs, _ = get_track_segments(
             p.points, min_len, p.start_point)
 
@@ -1660,9 +1659,10 @@ def MCS_direction_prediction(p):
     slope, intercept = np.polyfit(np.arange(len(theta)), theta, 1)
     return (slope)>0
 
-from spine.utils.vertex import get_vertex
+
 
 def reconstruct_vertex_single(particles):
+        
         """Post-processor which reconstructs one vertex for each interaction
         in the provided list.
 
@@ -1672,6 +1672,8 @@ def reconstruct_vertex_single(particles):
             Reconstructed/truth interaction object
         """
         # Selected the set of particles to use as a basis for vertex prediction
+
+        from spine.utils.vertex import get_vertex
         
         particles = [part for part in particles if (
                 part.is_primary and
@@ -1732,22 +1734,22 @@ def Bragg_Peak(p,len_bragg=10):#TODO this needs to be stored
 
 
 def MIPS_AND_MICHELS(particles):
-    STRICT_MICHLS:list[Particle]=[p for p in particles if HM_pred_hotfix(p) in [MICHL_SHP,LOWES_SHP] and (not is_primary_hotfix(p))]#
-    # PROBABLE_MIPS:list[Particle]=[]
+    STRICT_MICHLS:list["ParticleType"]=[p for p in particles if HM_pred_hotfix(p) in [MICHL_SHP,LOWES_SHP] and (not is_primary_hotfix(p))]#
+    # PROBABLE_MIPS:list["ParticleType"]=[]
     for p in particles:
         if p.pid in [MUON_PID,PION_PID]:
             if np.any(np.array([np.min(cdist([p.start_point],m.points)) for m in STRICT_MICHLS])<3*min_len) and not np.any(np.array([np.min(cdist([p.end_point],m.points)) for m in STRICT_MICHLS])<3*min_len):
                 flip_particle(p)
-def MIPS_AND_MICHELS_2(particles,skip:list[Particle]=[]):
-    STRICT_MICHLS:list[Particle]=[p for p in particles if HM_pred_hotfix(p) in [MICHL_SHP,LOWES_SHP] and (not is_primary_hotfix(p))]#
+def MIPS_AND_MICHELS_2(particles,skip:list["ParticleType"]=[]):
+    STRICT_MICHLS:list["ParticleType"]=[p for p in particles if HM_pred_hotfix(p) in [MICHL_SHP,LOWES_SHP] and (not is_primary_hotfix(p))]#
     for p in particles:
         if p.pid in [MUON_PID,PION_PID] and p not in skip:
             if p.is_primary and np.any(np.array([np.min(cdist([p.end_point],m.points)) for m in STRICT_MICHLS])<3*min_len) and (NUMI_ROT@p.start_dir)[2]<0 and -(NUMI_ROT@p.start_dir)[2]>.5*np.linalg.norm(p.start_dir) and p.reco_length>40:
                 p.is_primary=False
 
-# def CORRECT_BACKWARDS(particles,skip:list[Particle]=[]):
-#     STRICT_MICHLS:list[Particle]=[p for p in particles if HM_pred_hotfix(p) in [MICHL_SHP,LOWES_SHP] and (not is_primary_hotfix(p))]#
-#     OBVIOUS_MUONS:list[Particle]=[p for p in particles if p.pid in [MUON_PID,PION_PID] and np.any(np.array([np.min(cdist([p.end_point],m.points)) for m in STRICT_MICHLS])<3*min_len)]
+# def CORRECT_BACKWARDS(particles,skip:list["ParticleType"]=[]):
+#     STRICT_MICHLS:list["ParticleType"]=[p for p in particles if HM_pred_hotfix(p) in [MICHL_SHP,LOWES_SHP] and (not is_primary_hotfix(p))]#
+#     OBVIOUS_MUONS:list["ParticleType"]=[p for p in particles if p.pid in [MUON_PID,PION_PID] and np.any(np.array([np.min(cdist([p.end_point],m.points)) for m in STRICT_MICHLS])<3*min_len)]
 
 #     all_starts_and_ends=[p.start_point for p in particles]+[p.end_point for p in particles]
 #     for m in OBVIOUS_MUONS:
@@ -1763,7 +1765,7 @@ def MIPS_AND_MICHELS_2(particles,skip:list[Particle]=[]):
 #                     m.is_primary=False
 
 
-def flip_particle(p:Particle):
+def flip_particle(p:"ParticleType"):
     p.start_point,p.end_point=p.end_point,p.start_point
     p.start_dir=p.start_dir*(-1)
     p.end_dir=p.end_dir*(-1)
@@ -1778,7 +1780,7 @@ def merge_particles(p1,p2,particles):
     # print("merging",p1.id,p2.id)
 
 
-def K_plus_cut_cascade(obj,cuts,BASE_HIP:Particle,nu_id,potential_kaons:list[tuple[Particle,list[tuple[Particle,list[str]]]]],pass_failure,decay_mip_dict={},kaon_path={}):
+def K_plus_cut_cascade(obj,cuts,BASE_HIP:"ParticleType",nu_id,potential_kaons:list[tuple["ParticleType",list[tuple["ParticleType",list[str]]]]],pass_failure,decay_mip_dict={},kaon_path={}):
     def update_mip(cut:str,k,p):
         idx = k[1].index(p)
         assert cut not in k[1][idx][1]
@@ -1806,10 +1808,10 @@ def K_plus_cut_cascade(obj,cuts,BASE_HIP:Particle,nu_id,potential_kaons:list[tup
 
     if BASE_HIP.reco_length>4 and is_contained(BASE_HIP.start_point,margin=-5) and is_contained(BASE_HIP.end_point,margin=-5) and len(BASE_HIP.points)>=3: assert sum([p==BASE_HIP for p in particles])==1,(sum([p==BASE_HIP for p in particles]),sum([p.id==BASE_HIP.id for p in particles]))
 
-    NON_PRIMARY_TRACKS:list[Particle]=[p for p in particles if HM_pred_hotfix(p,HM_PRED) in [MIP_HM,HIP_HM] and p.reco_length>0]
-    NON_PRIMARY_MIPS:list[Particle]=[p for p in particles if HM_pred_hotfix(p,HM_PRED)==MIP_HM and p.reco_length>0]
-    NON_PRIMARY_MICHLS:list[Particle]=[p for p in particles if HM_pred_hotfix(p,HM_PRED) in [MICHL_SHP,LOWES_SHP,SHOWR_SHP,DELTA_SHP]]
-    NON_PRIMARY_SHWRS:list[Particle]=[p for p in particles if HM_pred_hotfix(p,HM_PRED) in [SHOWR_SHP,LOWES_SHP]]
+    NON_PRIMARY_TRACKS:list["ParticleType"]=[p for p in particles if HM_pred_hotfix(p,HM_PRED) in [MIP_HM,HIP_HM] and p.reco_length>0]
+    NON_PRIMARY_MIPS:list["ParticleType"]=[p for p in particles if HM_pred_hotfix(p,HM_PRED)==MIP_HM and p.reco_length>0]
+    NON_PRIMARY_MICHLS:list["ParticleType"]=[p for p in particles if HM_pred_hotfix(p,HM_PRED) in [MICHL_SHP,LOWES_SHP,SHOWR_SHP,DELTA_SHP]]
+    NON_PRIMARY_SHWRS:list["ParticleType"]=[p for p in particles if HM_pred_hotfix(p,HM_PRED) in [SHOWR_SHP,LOWES_SHP]]
     done=False
 
     potential_kaons+=[(BASE_HIP,[(i,[]) for i in NON_PRIMARY_MIPS])]
@@ -1870,7 +1872,7 @@ def K_plus_cut_cascade(obj,cuts,BASE_HIP:Particle,nu_id,potential_kaons:list[tup
             checked=True
             for k in potential_kaons:
                 for p in list(reversed(k[1])):
-                        # assert type(p)==list[Particle],(type(p),type[p[0]])
+                        # assert type(p)==list["ParticleType"],(type(p),type[p[0]])
                         # plen=np.sum([i.reco_length for i in p])
 
                     
@@ -1934,7 +1936,7 @@ def K_plus_cut_cascade(obj,cuts,BASE_HIP:Particle,nu_id,potential_kaons:list[tup
             checked=True
             for k in potential_kaons:
                 for p in list(reversed(k[1])):
-                        # assert type(p)==list[Particle],(type(p),type[p[0]])
+                        # assert type(p)==list["ParticleType"],(type(p),type[p[0]])
                         # plen=np.sum([i.reco_length for i in p])
 
                         
@@ -1975,7 +1977,6 @@ def K_plus_cut_cascade(obj,cuts,BASE_HIP:Particle,nu_id,potential_kaons:list[tup
         
         elif c==rf"Primary $K^+$":
             checked=True
-            # if type(interaction)==TruthInteraction:
             if not is_primary_hotfix(BASE_HIP):# and norm3d(inter-BASE_HIP.end_point)>cuts[c]):# or norm3d(BASE_HIP.start_point-inter)>cuts[c]:# or HM_pred_hotfix(BASE_HIP,hm_pred)!=HIP_HM:
                 update_mips(c)
                 failed=True
@@ -1987,7 +1988,6 @@ def K_plus_cut_cascade(obj,cuts,BASE_HIP:Particle,nu_id,potential_kaons:list[tup
 
         elif c=="Close to Vertex":
             checked=True
-            # if type(interaction)==TruthInteraction:
             # others_dist_start=min([np.linalg.norm(p.start_point-BASE_HIP.start_point) for p in self.particles if p!=BASE_HIP])
             # others_dist_end=min([np.linalg.norm(p.start_point-BASE_HIP.start_point) for p in self.particles if p!=BASE_HIP])
             if np.linalg.norm(BASE_HIP.start_point-RECO_VERTEX)>cuts[c]:# and norm3d(inter-BASE_HIP.end_point)>cuts[c]):# or norm3d(BASE_HIP.start_point-inter)>cuts[c]:# or HM_pred_hotfix(BASE_HIP,hm_pred)!=HIP_HM:
@@ -2114,7 +2114,7 @@ def K_plus_cut_cascade(obj,cuts,BASE_HIP:Particle,nu_id,potential_kaons:list[tup
             checked=True
             for k in potential_kaons:#this loop looks for appropriate mips at one of the ends of the hadronic group
                 for p in list(reversed(k[1])):
-                    # assert type(p)==list[Particle],(type(p),type[p[0]])
+                    # assert type(p)==list["ParticleType"],(type(p),type[p[0]])
                     # plen=np.sum([i.reco_length for i in p])
                     plen=p[0].reco_length
 
@@ -2143,7 +2143,7 @@ def K_plus_cut_cascade(obj,cuts,BASE_HIP:Particle,nu_id,potential_kaons:list[tup
             checked=True
             for k in potential_kaons:#this loop looks for appropriate mips at one of the ends of the hadronic group
                 for p in list(reversed(k[1])):
-                    # assert type(p)==list[Particle],(type(p),type[p[0]])
+                    # assert type(p)==list["ParticleType"],(type(p),type[p[0]])
                     # plen=np.sum([i.reco_length for i in p])
                     plen=p[0].reco_length
 
@@ -2177,7 +2177,7 @@ def K_plus_cut_cascade(obj,cuts,BASE_HIP:Particle,nu_id,potential_kaons:list[tup
             checked=True
             for k in potential_kaons:#this loop looks for appropriate mips at one of the ends of the hadronic group
                 for p in list(reversed(k[1])):
-                    # assert type(p)==list[Particle],(type(p),type[p[0]])
+                    # assert type(p)==list["ParticleType"],(type(p),type[p[0]])
                     # plen=np.sum([i.reco_length for i in p])
                     plen=p[0].reco_length
 
@@ -2195,7 +2195,7 @@ def K_plus_cut_cascade(obj,cuts,BASE_HIP:Particle,nu_id,potential_kaons:list[tup
                     if angle_between(BASE_HIP.end_dir,p[0].start_dir)<cuts[c]:
                         update_mip(c,k,p)
 
-                    # assert type(p)==list[Particle],(type(p),type[p[0]])
+                    # assert type(p)==list["ParticleType"],(type(p),type[p[0]])
                     # plen=np.sum([i.reco_length for i in p])
                     # plen=p[0].reco_length
 
@@ -2245,7 +2245,7 @@ def K_plus_cut_cascade(obj,cuts,BASE_HIP:Particle,nu_id,potential_kaons:list[tup
             checked=True
             for k in potential_kaons:#this loop looks for appropriate mips at one of the ends of the hadronic group
                 
-                    # assert type(p)==list[Particle],(type(p),type[p[0]])
+                    # assert type(p)==list["ParticleType"],(type(p),type[p[0]])
                     # plen=np.sum([i.reco_length for i in p])
                     # plen=p[0].reco_length
 
@@ -2261,17 +2261,24 @@ def K_plus_cut_cascade(obj,cuts,BASE_HIP:Particle,nu_id,potential_kaons:list[tup
 
         elif c=="Valid MIP Len":
             checked=True
+            n=cuts["Valid MIP Len"]
+            x1 = n % 100
+            x2 = (n // 100) % 100
+            x3 = (n // 100**2) % 100
+            x4 = (n // 100**3) % 100
+            pi_bounds=[x1,x2]
+            mu_bounds=[x3,x4]
             for k in potential_kaons:#this loop looks for appropriate mips at one of the ends of the hadronic group
                 for p in list(reversed(k[1])):
-                    # assert type(p)==list[Particle],(type(p),type[p[0]])
+                    # assert type(p)==list["ParticleType"],(type(p),type[p[0]])
                     # plen=np.sum([i.reco_length for i in p])
                     plen=p[0].reco_length
 
-                    mip_start=p[0].start_point
-                    mip_end=p[0].end_point
+                    # mip_start=p[0].start_point
+                    # mip_end=p[0].end_point
                             
-                    if not ((cuts[c]["mu_len"][0]<plen and plen<cuts[c]["mu_len"][1]) or 
-                            (cuts[c]["pi_len"][0]<plen and plen<cuts[c]["pi_len"][1])):
+                    if not ((pi_bounds[0]<plen and plen<pi_bounds[1]) or 
+                            (mu_bounds[0]<plen and plen<mu_bounds[1])):
                         
                         update_mip(c,k,p)
 
@@ -2279,7 +2286,7 @@ def K_plus_cut_cascade(obj,cuts,BASE_HIP:Particle,nu_id,potential_kaons:list[tup
             checked=True
             for k in potential_kaons:#this loop looks for appropriate mips at one of the ends of the hadronic group
                 for p in list(reversed(k[1])):
-                    # assert type(p)==list[Particle],(type(p),type[p[0]])
+                    # assert type(p)==list["ParticleType"],(type(p),type[p[0]])
                     # plen=np.sum([i.reco_length for i in p])
                     plen=p[0].reco_length
 
