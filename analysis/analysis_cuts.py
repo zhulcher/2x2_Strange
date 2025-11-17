@@ -4,7 +4,7 @@ lambdas in a liquid argon TPC using the reconstruction package SPINE https://git
 """
 
 import copy
-from types import NoneType
+from typing import Optional
 from scipy.spatial.distance import cdist
 SOFTWARE_DIR = '/sdf/group/neutrino/zhulcher/spine' #or wherever on sdf
 
@@ -152,7 +152,7 @@ def is_primary_hotfix(p:"ParticleType")->bool:
             return True
     return p.is_primary
 
-def HM_pred_hotfix(p:"ParticleType",hm_pred:dict[int,np.ndarray]|NoneType=None,old=False)->int:
+def HM_pred_hotfix(p:"ParticleType",hm_pred:Optional[dict[int,np.ndarray]]=None,old=False)->int:
 
     if old and hm_pred is not None:
         if type(p)==TruthParticle:
@@ -1616,9 +1616,9 @@ def impact_parameter(vert,pos,mom):
     
     return norm3d(pos-vert)*np.sin(min(ret,np.pi/2))
 
-def get_tpc_id(point):
-    return Geo.get_closest_tpc([point])[0]
-    # return 
+# def get_tpc_id(point):
+#     return Geo.get_closest_tpc([point])[0]
+#     # return 
 
 
 def cos_gamma_to_pip(E):

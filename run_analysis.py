@@ -1,6 +1,5 @@
 import sys
 import os
-from types import NoneType
 import yaml
 
 from analysis.analysis_cuts import *
@@ -14,7 +13,7 @@ from spine.io.core.read import HDF5Reader
 from spine.data import Meta as Met
 
 
-def closest_reco_particle_to_truth_start(p:ParticleType,particles:list[ParticleType],truth_particles:list[TruthParticle],skip:RecoParticle|NoneType=None)->ParticleType:
+def closest_reco_particle_to_truth_start(p:ParticleType,particles:list[ParticleType],truth_particles:list[TruthParticle],skip:Optional[RecoParticle]=None)->Optional[ParticleType]:
     if type(p)==TruthParticle:
         return p
     assert type(p)==RecoParticle
