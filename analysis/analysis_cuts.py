@@ -2,7 +2,7 @@
 This file contains output classes and cut functions useful for reconstructing kaons and 
 lambdas in a liquid argon TPC using the reconstruction package SPINE https://github.com/DeepLearnPhysics/spine
 """
-
+from __future__ import annotations
 import copy
 from typing import Optional
 from scipy.spatial.distance import cdist
@@ -93,15 +93,15 @@ MICHL_HM=MICHL_SHP
 LAM_MASS = 1115.683   # [MeV/c^2]
 SIG0_MASS = 1192.642  # [MeV/c^2]
 
-from typing import TypeAlias
+# from typing import TypeAlias
 from typing import TYPE_CHECKING
 
 from spine.data.out.interaction import RecoInteraction,TruthInteraction
 from spine.data.out.particle import TruthParticle,RecoParticle
 if TYPE_CHECKING:
     
-    InteractionType:TypeAlias= "RecoInteraction | TruthInteraction"
-    ParticleType:TypeAlias = "TruthParticle|RecoParticle"
+    InteractionType= "RecoInteraction | TruthInteraction"
+    ParticleType = "TruthParticle|RecoParticle"
 
 
 Model="icarus"
@@ -779,7 +779,7 @@ class PredKaonMuMich:
             # print("help",self.hip.id,self.hip.is_primary)
 
         assert (self.hip.is_primary)==primary_hip
-        K_plus_cut_cascade(self,cuts,self.hip,self.truth_interaction_nu_id,self.potential_kaons,self.pass_failure,self.decay_mip_dict,self.kaon_path)
+        K_plus_cut_cascade(self,cuts,self.hip,self.truth_interaction_nu_id,self.potential_kaons,self.pass_failure,self.decay_mip_dict,self.kaon_path,stop_early=False)
         assert (self.hip.is_primary)==primary_hip
         
         # assert self.hip.id==original_hip_id
@@ -981,6 +981,7 @@ class Pred_Neut:
         
     
     def pass_cuts(self,cuts:dict)->bool:
+        print("running pass_cuts",len(self.particles))
         # passed=True
         extra_children=[]
         self.pass_failure=[]
@@ -1780,10 +1781,51 @@ def merge_particles(p1,p2,particles):
     # print("merging",p1.id,p2.id)
 
 
-def K_plus_cut_cascade(obj,cuts,BASE_HIP:"ParticleType",nu_id,potential_kaons:list[tuple["ParticleType",list[tuple["ParticleType",list[str]]]]],pass_failure,decay_mip_dict={},kaon_path={}):
+def K_plus_cut_cascade(obj,
+                       cuts,
+                       BASE_HIP:"ParticleType",
+                       nu_id=-1,
+                       potential_kaons:list[tuple["ParticleType",list[tuple["ParticleType",list[str]]]]]=None,
+                       pass_failure=None,
+                       decay_mip_dict=None,
+                       kaon_path=None,
+                       stop_early=True) -> bool:
+
+    if potential_kaons is None:
+        potential_kaons=[]
+    if pass_failure is None:
+        pass_failure = []
+    if decay_mip_dict is None:
+        decay_mip_dict = {}
+    if kaon_path is None:
+        kaon_path = {}
+
+    RECO_VERTEX=obj.reco_vertex
+    HM_PRED=None#self.hm_pred
+    particles=obj.particles
+
+    if stop_early:
+        if "Valid Interaction" in cuts:
+            if type(BASE_HIP)==TruthParticle:
+                if nu_id==-1:
+                    return False
+            else:
+                # print()
+                if not obj.is_flash_matched:# and best_dist>cuts[c]:
+                    return False
+                
+        if "Primary $K^+$" in cuts:
+            if not BASE_HIP.is_primary:
+                return False
+        if "Initial HIP" in cuts:
+            if HM_pred_hotfix(BASE_HIP,HM_PRED)!=HIP_HM and BASE_HIP.pid not in  [3,4]:
+                return False
+            if BASE_HIP.reco_length<=0: 
+                return False
+    # print("running pass_cuts",len(obj.particles))
     def update_mip(cut:str,k,p):
         idx = k[1].index(p)
-        assert cut not in k[1][idx][1]
+        assert cut not in k[1][idx][1],(k[1][idx][1],cut)
         if not len(p[1]):
             k[1][idx][1].append(cut)
         elif (not p[0].is_matched) or (p[0].match_ids[0] not in decay_mip_dict) or (not k[0].is_matched) or (k[0].match_ids[0] not in kaon_path):
@@ -1800,13 +1842,10 @@ def K_plus_cut_cascade(obj,cuts,BASE_HIP:"ParticleType",nu_id,potential_kaons:li
         for k in potential_kaons:
             for p in list(reversed(k[1])):   # SAFE: iterate over a copy
                 update_mip(cut, k, p)
+    # print(dir(obj))
+    
 
-
-    RECO_VERTEX=obj.reco_vertex
-    HM_PRED=None#self.hm_pred
-    particles=obj.particles
-
-    if BASE_HIP.reco_length>4 and is_contained(BASE_HIP.start_point,margin=-5) and is_contained(BASE_HIP.end_point,margin=-5) and len(BASE_HIP.points)>=3: assert sum([p==BASE_HIP for p in particles])==1,(sum([p==BASE_HIP for p in particles]),sum([p.id==BASE_HIP.id for p in particles]))
+    # if BASE_HIP.reco_length>4 and is_contained(BASE_HIP.start_point,margin=-5) and is_contained(BASE_HIP.end_point,margin=-5) and len(BASE_HIP.points)>=3: assert sum([p==BASE_HIP for p in particles])==1,(sum([p==BASE_HIP for p in particles]),sum([p.id==BASE_HIP.id for p in particles]))
 
     NON_PRIMARY_TRACKS:list["ParticleType"]=[p for p in particles if HM_pred_hotfix(p,HM_PRED) in [MIP_HM,HIP_HM] and p.reco_length>0]
     NON_PRIMARY_MIPS:list["ParticleType"]=[p for p in particles if HM_pred_hotfix(p,HM_PRED)==MIP_HM and p.reco_length>0]
@@ -1840,6 +1879,7 @@ def K_plus_cut_cascade(obj,cuts,BASE_HIP:"ParticleType",nu_id,potential_kaons:li
 
     failed=False
     for c in cuts:
+        if not bool(cuts[c]): continue
         # if len(self.pass_failure)>=3: break
 
         checked=False
@@ -1880,8 +1920,6 @@ def K_plus_cut_cascade(obj,cuts,BASE_HIP:"ParticleType",nu_id,potential_kaons:li
                         mip_start=p[0].start_point
                         # mip_end=p[0].end_point
 
-
-
                         n1=norm3d(mip_start-k[0].end_point)
                         if (n1>min_len*2 or n1>=norm3d(mip_start-k[0].start_point)):
                             # did_something=1
@@ -1892,13 +1930,18 @@ def K_plus_cut_cascade(obj,cuts,BASE_HIP:"ParticleType",nu_id,potential_kaons:li
                 
         
         elif c=="No HIP Deltas":
+            
             checked=True
             deltas=False
+            if BASE_HIP.shape!=TRACK_SHP:
+                update_mips(c)
+                continue
 
             DELTAS=[p for p in particles if p.shape==DELTA_SHP]
             for p in DELTAS:
                 # if p.shape==DELTA_SHP:
-                if np.min(cdist(BASE_HIP.points, [p.start_point]))<min_len/2:
+                # if np.min(cdist(BASE_HIP.points, [p.start_point]))<min_len/2:
+                if point_to_segment_distance(p.start_point, BASE_HIP)<min_len/2:
                     deltas=True
                     update_mips(c)
                     failed=True
@@ -1908,7 +1951,8 @@ def K_plus_cut_cascade(obj,cuts,BASE_HIP:"ParticleType",nu_id,potential_kaons:li
                     for p in list(reversed(k[1])):
                         for d in DELTAS:
                         # for p in list(reversed(k[1])):
-                            if np.min(cdist(k[0].points, [d.start_point]))<min_len/2:
+                            if point_to_segment_distance(d.start_point, k[0])<min_len/2:
+                            # if np.min(cdist(k[0].points, [d.start_point]))<min_len/2:
                         # deltas=True
                                 update_mip(c,k,p)
                                 break
@@ -1921,7 +1965,8 @@ def K_plus_cut_cascade(obj,cuts,BASE_HIP:"ParticleType",nu_id,potential_kaons:li
                 for p in list(reversed(k[1])):
                     for d in DELTAS:
                     # for p in list(reversed(k[1])):
-                        if np.min(cdist(p[0].points, [d.start_point]))<cuts[c]:
+                        # if np.min(cdist(p[0].points, [d.start_point]))<cuts[c]:
+                        if point_to_segment_distance(d.start_point, p[0])<min_len/2:
                         # deltas=True
                             
                             update_mip(c,k,p)
@@ -1938,9 +1983,6 @@ def K_plus_cut_cascade(obj,cuts,BASE_HIP:"ParticleType",nu_id,potential_kaons:li
                 for p in list(reversed(k[1])):
                         # assert type(p)==list["ParticleType"],(type(p),type[p[0]])
                         # plen=np.sum([i.reco_length for i in p])
-
-                        
-
                         # mip_start=p[0].start_point
                         mip_end=p[0].end_point
 
@@ -2025,15 +2067,15 @@ def K_plus_cut_cascade(obj,cuts,BASE_HIP:"ParticleType",nu_id,potential_kaons:li
                 if nu_id==-1:
                     update_mips(c)
                     failed=True
-            elif type(BASE_HIP)==RecoParticle:
+            else:
                 # print()
                 if not obj.is_flash_matched:# and best_dist>cuts[c]:
                     # if self.truth: print("FAILED AT VALID INTERACTION")#,best_dist)
                     update_mips(c)
                     failed=True
                     
-            else:
-                raise Exception(type(BASE_HIP))
+            # else:
+            #     raise Exception(type(BASE_HIP))
             
 
         elif c=="Forward HIP":
@@ -2090,7 +2132,8 @@ def K_plus_cut_cascade(obj,cuts,BASE_HIP:"ParticleType",nu_id,potential_kaons:li
                         # mich_child=Bragg_Peak(p[0])>5.5
                     for other in NON_PRIMARY_MICHLS:
                         if other.reco_ke>90: continue
-                        check_dist=np.min(cdist([mip_end],other.points))
+                        # check_dist=np.min(cdist([mip_end],other.points))
+                        check_dist=np.min([norm3d(mip_end-other.start_point),norm3d(mip_end-other.end_point)])
                         if other.shape not in [DELTA_SHP,LOWES_SHP]:
                             if check_dist<4*min_len:
                                 mich_child=True
@@ -2129,7 +2172,8 @@ def K_plus_cut_cascade(obj,cuts,BASE_HIP:"ParticleType",nu_id,potential_kaons:li
                             if other.reco_ke>300: continue# i think the maximum energy is around 225 MeV
                             if (#norm3d(other.start_point-mip_start)<cuts[c][0]*np.inf
                                 # and norm3d(other.start_point-mip_end)>min_len 
-                                np.min(cdist(other.points, [mip_end]))>min_len
+                                # np.min(cdist(other.points, [mip_end]))>min_len
+                                norm3d(other.start_point-mip_end)>min_len
                                 and (impact_parameter(mip_start,other.start_point,other.momentum)<impact_parameter(BASE_HIP.start_point,other.start_point,other.momentum) or np.linalg.norm(BASE_HIP.start_point-mip_start)<3*min_len)
                                 and (impact_parameter(mip_start,other.start_point,other.momentum)<cuts[c])):#or angle_between(other.start_point-mip_start,other.momentum)<cuts[c][2])
                                 # and cos_gamma_to_pip_bounds(other.reco_ke)[0]<np.cos(angle_between(other.start_point-mip_start,p[0].momentum)) and np.cos(angle_between(other.start_point-mip_start,p[0].momentum))<cos_gamma_to_pip_bounds(other.reco_ke)[1]):
@@ -2308,11 +2352,47 @@ def K_plus_cut_cascade(obj,cuts,BASE_HIP:"ParticleType",nu_id,potential_kaons:li
         else:
             pass_failure+=[c]
             failed=True
+            if stop_early:
+                print("reasonable particle")
+                return False
             # if not self.truth:
                 # return False
                 
         if not checked:
             raise Exception(c,"not found in K+ cuts")
+    print(len(pass_failure))
+    return pass_failure==[""]
+
+
+def point_to_segment_distance(p0, p):
+    assert p.shape not in [DELTA_SHP,SHOWR_SHP,MICHL_SHP]
+    p1=p.start_point
+    p2=p.end_point
+
+    v = p2 - p1       # segment direction
+    w = p0 - p1       # point relative to p1
+
+    seg_len_sq = np.dot(v, v)
+    assert seg_len_sq==seg_len_sq,v
+    assert seg_len_sq!=np.inf,v
+    if seg_len_sq == 0:
+        # p1 and p2 are the same point
+        return np.linalg.norm(p0 - p1)
+
+    # Project w onto v, normalized: t is how far along the segment the projection falls
+    t = np.dot(w, v) / seg_len_sq
+
+    # If projection falls before p1, clamp to p1
+    if t <= 0:
+        closest = p1
+    # If projection falls after p2, clamp to p2
+    elif t >= 1:
+        closest = p2
+    # Otherwise projection is within the segment
+    else:
+        closest = p1 + t * v
+
+    return np.linalg.norm(p0 - closest)
 
 
 
