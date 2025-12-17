@@ -13,7 +13,7 @@ from spine.io.core.read import HDF5Reader
 from spine.data import Meta as Met
 
 
-def closest_reco_particle_to_truth_start(p:ParticleType,particles:list[ParticleType],truth_particles:list[TruthParticle],skip:Optional[RecoParticle]=None)->Optional[ParticleType]:
+def closest_reco_particle_to_truth_start(p:"ParticleType",particles:list["ParticleType"],truth_particles:list[TruthParticle],skip:Optional[RecoParticle]=None)->Optional["ParticleType"]:
     if type(p)==TruthParticle:
         return p
     assert type(p)==RecoParticle
@@ -89,12 +89,12 @@ def main(HMh5,analysish5,mode:bool=True,outfile='',compare_truth="True"):
         # HIP=1
         # MIP=2
         if mode:
-            particles:list[ParticleType] =data['truth_particles']
-            interactions:list[InteractionType]=data['truth_interactions']
+            particles:list["ParticleType"] =data['truth_particles']
+            interactions:list["InteractionType"]=data['truth_interactions']
             
         else:
-            particles:list[ParticleType] =data['reco_particles']
-            interactions:list[InteractionType] =data['reco_interactions']
+            particles:list["ParticleType"] =data['reco_particles']
+            interactions:list["InteractionType"] =data['reco_interactions']
 
         truth_particles:list[TruthParticle] =data['truth_particles']
         truth_interactions:list[TruthInteraction]=data['truth_interactions']
@@ -103,7 +103,7 @@ def main(HMh5,analysish5,mode:bool=True,outfile='',compare_truth="True"):
         meta:Met= data['meta']
 
         perm_inverse=None
-        HM_pred=None
+        HM_pred:Optional[list[np.ndarray]]=None
 
         if USE_HM and not mode:
             assert reader is not None
@@ -159,7 +159,7 @@ def main(HMh5,analysish5,mode:bool=True,outfile='',compare_truth="True"):
         # if len(set1)!=len(set2):
         # raise Exception(len(set1),len(set2))
         
-            HM_pred:list[np.ndarray]=[HIPMIP_pred(p,sparse3d_pcluster_semantics_HM,perm_inverse,mode=mode) for p in particles]
+            HM_pred=[HIPMIP_pred(p,sparse3d_pcluster_semantics_HM,perm_inverse,mode=mode) for p in particles]
         # HM_acc:list[np.ndarray]=[HIPMIP_acc(p,sparse3d_pcluster_semantics_HM,perm_inverse,mode=mode) for p in particles]
 
         for i in range(len(interactions)):
@@ -191,7 +191,7 @@ def main(HMh5,analysish5,mode:bool=True,outfile='',compare_truth="True"):
         # print("starting kaons")
         for hip_candidate in particles:
             if hip_candidate.interaction_id==-1: continue
-            if hip_candidate.reco_length<=min_len/4: continue
+            if hip_candidate.reco_length<=min_len/2: continue
 
             assert hip_candidate.id in [i.id for i in interactions[hip_candidate.interaction_id].particles],(hip_candidate.id,[i.id for i in interactions[hip_candidate.interaction_id].particles],type(hip_candidate),type(interactions[hip_candidate.interaction_id]),hip_candidate.interaction_id,hip_candidate.pdg_code)
             assert len(hip_candidate.points)
@@ -275,6 +275,9 @@ def main(HMh5,analysish5,mode:bool=True,outfile='',compare_truth="True"):
 
             pass_prelims*=hip_candidate.is_primary
 
+            shapes=[p.shape for p in interactions[hip_candidate.interaction_id].particles]
+            pass_prelims*=(MICHL_SHP in shapes or SHOWR_SHP in shapes or LOWES_SHP in shapes)
+
             pass_prelims*=len(interactions[hip_candidate.interaction_id].particles)>=3
 
             # if pass_prelims:
@@ -331,14 +334,14 @@ def main(HMh5,analysish5,mode:bool=True,outfile='',compare_truth="True"):
             #TODO fix this 
             if lam_hip_candidate.interaction_id==-1: continue
             assert len(lam_hip_candidate.points)
-            if lam_hip_candidate.reco_length<=min_len/4: continue
+            if lam_hip_candidate.reco_length<=min_len/2: continue
             assert lam_hip_candidate.id in [i.id for i in interactions[lam_hip_candidate.interaction_id].particles],(lam_hip_candidate.id,[i.id for i in interactions[lam_hip_candidate.interaction_id].particles],type(lam_hip_candidate),type(interactions[lam_hip_candidate.interaction_id]),lam_hip_candidate.interaction_id,lam_hip_candidate.pdg_code)
                 # continue
             for lam_mip_candidate in particles:
 
                 if lam_mip_candidate.id==lam_hip_candidate.id:
                     continue
-                if lam_mip_candidate.reco_length<=min_len/4: continue
+                if lam_mip_candidate.reco_length<=min_len/2: continue
                 if lam_mip_candidate.interaction_id==-1: continue
                 assert lam_mip_candidate.id in [i.id for i in interactions[lam_mip_candidate.interaction_id].particles],(lam_mip_candidate.id,[i.id for i in interactions[lam_mip_candidate.interaction_id].particles],type(lam_mip_candidate),type(interactions[lam_mip_candidate.interaction_id]),lam_mip_candidate.interaction_id,lam_mip_candidate.pdg_code)
                 assert len(lam_mip_candidate.points)
@@ -464,14 +467,17 @@ def main(HMh5,analysish5,mode:bool=True,outfile='',compare_truth="True"):
 
                 # pass_prelims=is_contained(interactions[lam_hip_candidate.interaction_id].vertex)*is_contained(lam_hip_candidate.points)
                 # pass_prelims*=is_contained(interactions[lam_mip_candidate.interaction_id].vertex)*is_contained(lam_mip_candidate.points)
-                pass_prelims*=(HM_pred_hotfix(lam_hip_candidate,HM_pred)==HIP_HM or lam_hip_candidate.pid in [3,4])#lam_hip_candidate.shape==TRACK_SHP#
-                pass_prelims*=(HM_pred_hotfix(lam_mip_candidate,HM_pred)==MIP_HM or lam_mip_candidate.pid in [3,4])#lam_mip_candidate.shape==TRACK_SHP
+                pass_prelims*=(HM_pred_hotfix(lam_hip_candidate,HM_pred)==HIP_HM or lam_hip_candidate.pid in [PION_PID,PROT_PID])#lam_hip_candidate.shape==TRACK_SHP#
+                pass_prelims*=(HM_pred_hotfix(lam_mip_candidate,HM_pred)==MIP_HM or lam_mip_candidate.pid in [PION_PID,PROT_PID])#lam_mip_candidate.shape==TRACK_SHP
+
+
+                pass_prelims*=(closest_distance(lam_hip_candidate.start_point, lam_hip_candidate.end_point-lam_hip_candidate.start_point, lam_hip_candidate.start_point, lam_hip_candidate.end_point-lam_hip_candidate.start_point)<2)
 
                 if pass_prelims:
 
                     dist = np.min(cdist(lam_hip_candidate.points, lam_mip_candidate.points))
                 
-                    pass_prelims*=(dist<10)
+                    pass_prelims*=(dist<5)
 
                 fm=interactions[lam_hip_candidate.interaction_id].is_flash_matched
                 # if pass_prelims and not mode:
@@ -646,6 +652,8 @@ if __name__ == "__main__":
         # SAVEDIR="/sdf/data/neutrino/zhulcher/BNBNUMI/simple_franky_npy/"
         # FILEDIR="/sdf/data/neutrino/zhulcher/BNBNUMI/dan_carber3_files_reco/"
         # SAVEDIR="/sdf/data/neutrino/zhulcher/BNBNUMI/dan_carber3_files_reco/"
+
+        raise Exception("bad option")
 
         FILEDIR="/sdf/data/neutrino/zhulcher/BNBNUMI/dan_carber3_files_truth/"
         SAVEDIR="/sdf/data/neutrino/zhulcher/BNBNUMI/dan_carber3_analysis/"

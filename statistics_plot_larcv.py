@@ -2,7 +2,7 @@ from statistics_plot_base import *
 from collections import defaultdict
 
 
-margin0=[[15,15],[15,15],[10,60]]
+# margin0=[[15,15],[15,15],[10,60]]
 
 
 latextoplot={
@@ -222,6 +222,7 @@ other=defaultdict(int)
 # k_primary=[]
 
 indiv_decay=defaultdict(list)
+muon=defaultdict(list)
 # lam_decay=[]
 # k_decay=[]
 # k0s_decay=[]
@@ -319,12 +320,19 @@ for lfile in FILES:
         
         # Einit=particles[1][0][entry]
 
-        nuE=i[-1]
+        nuE=i[-1]/1000
 
         counts=Counter(prim_pgs)
 
-        if counts[3122]>1: raise Exception(prim_pgs)
-        if counts[321]>1: raise Exception(prim_pgs)
+        if counts[3122]>1: 
+            print("bad",prim_pgs)
+            continue
+            if counts[3122]>2: raise Exception(prim_pgs)
+        if counts[321]>1: 
+            print("bad",prim_pgs)
+            continue
+            if counts[321]>2: 
+                raise Exception(prim_pgs)
         if 3122 in prim_pgs:
             neutE_L+=[nuE]
         if 321 in prim_pgs:
@@ -385,7 +393,6 @@ for lfile in FILES:
         
         
     # for l in lambdas:
-        
         for prim in i[1]:
             for inter in overall:
                 # print(prim,inter[1])
@@ -396,15 +403,20 @@ for lfile in FILES:
 
                     # print(l)
                     # print(l)
-                    pl=[z[1] for z in l if z[0] in inter[1]]
+                    idx=0
+                    pl=[z[1] for z in l if z[idx] in inter[1]]
+                    # while not len(pl):
+                    #     idx+=1
+                    #     pl=[z[1] for z in l if z[idx] in inter[1]]
+
                     # assert len(pl)==1
-                    p=pl[0]
+                    p=pl[idx]
                     KE=np.sqrt(p**2+inter[3]**2)-inter[3]
                     indiv_total[inter[0]]+=[KE]
                     # if is_contained(l[1][:3]):
                     # int_type+=[l[5]]
 
-                    lset=set([z[0] for z in l])-set(inter[1])
+                    lset=set([z[idx] for z in l])-set(inter[1])
 
                     if is_contained(i[0][:3],margin=0):
 
@@ -415,9 +427,9 @@ for lfile in FILES:
 
                         if set(inter[1])=={321}:
                             
-                            # if Counter([z[0] for z in l])==Counter([-13,321]) or Counter([z[0] for z in l])==Counter([211,321]):
-                            mip_start=[z[-1][0] for z in l if z[0] in [-13,211]]
-                            mip_end=[z[-1][1] for z in l if z[0] in [-13,211]]
+                            # if Counter([z[idx] for z in l])==Counter([-13,321]) or Counter([z[idx] for z in l])==Counter([211,321]):
+                            mip_start=[z[-1][0] for z in l if z[idx] in [-13,211]]
+                            mip_end=[z[-1][1] for z in l if z[idx] in [-13,211]]
                             if len(mip_start)>0 and is_contained(mip_start[0],margin=1) and is_contained(mip_end[0],margin=1):
                                 # print([l])
                                 contained+=[i[0][:3]]
@@ -440,8 +452,25 @@ for lfile in FILES:
                         indiv_fiducial[inter[0]]+=[KE]
                         # print(l[2])
                         # print(k[2])
+
                         if np.any([lset==set(z) for z in inter[2]]):
-                            indiv_decay[inter[0]]+=[KE]
+                            # add_it=True
+                            if set(inter[1])=={321}:
+                                primpdgs=[z for z in i[1].keys() if z[1]==321]
+                                kaon_list=[zz for zz in i[1][primpdgs[idx]] if zz[0]==321][0]
+                                valid_decays=[zz[0] for zz in i[1][primpdgs[0]] if zz[0] not in  [321]]
+                                child_list_mu=[zz for zz in i[1][primpdgs[idx]] if zz[0] in [-13]]
+                                child_list_pi=[zz for zz in i[1][primpdgs[idx]] if zz[0] in [211]]
+                                min_kaon_ke=csda_ke_lar(min_len,KAON_MASS)
+                                min_kaon_p=math.sqrt(min_kaon_ke**2 + 2 * min_kaon_ke * KAON_MASS)
+                                if ((valid_decays in [[211]] and child_list_pi[0][1]>200 and child_list_pi[0][1]<210 and kaon_list[1]>min_kaon_p) or 
+                                    valid_decays in [[-13]] and child_list_mu[0][1]>230 and child_list_mu[0][1]<240 and kaon_list[1]>min_kaon_p):
+                                    indiv_decay[inter[0]]+=[KE]
+                                    if valid_decays in [[-13]] and child_list_mu[0][1]>230 and child_list_mu[0][1]<240 and kaon_list[1]>min_kaon_p:
+                                        muon[inter[0]]+=[KE]
+
+                            else:
+                                indiv_decay[inter[0]]+=[KE]
 
                             # if inter[1][0]==321: print("found one", lset)
 
@@ -468,7 +497,7 @@ for lfile in FILES:
             # if prim[1]==321:
             #     k=i[1][prim]
             #     # print(k)
-            #     pl=[z[1] for z in k if z[0]==321]
+            #     pl=[z[1] for z in k if z[idx]==321]
             #     assert len(pl)==1
             #     p=pl[0]
             #     KE=np.sqrt(p**2+KAON_MASS**2)-KAON_MASS
@@ -484,7 +513,7 @@ for lfile in FILES:
             #             #     k_cont+=[KE]
             #             # print(k[2])
             #         # print(k[2])
-            #         kset=set([z[0] for z in k])-set([321])
+            #         kset=set([z[idx] for z in k])-set([321])
             #         if kset==set([-13]) or kset==set([211]):
 
             #             k_decay+=[KE]
@@ -498,7 +527,7 @@ for lfile in FILES:
             # if prim[1] in [310,311]:
             #     k=i[1][prim]
             #     # print(k)
-            #     pl=[z[1] for z in k if z[0] in [310,311]]
+            #     pl=[z[1] for z in k if z[idx] in [310,311]]
             #     assert len(pl)==1
             #     p=pl[0]
             #     KE=np.sqrt(p**2+K0S_MASS**2)-K0S_MASS
@@ -513,7 +542,7 @@ for lfile in FILES:
             #             # if k[-1]:
             #             #     k_cont+=[KE]
                     
-            #         kset=set([z[0] for z in k])-set([310,311])
+            #         kset=set([z[idx] for z in k])-set([310,311])
                     
             #         if kset==set([-211, 211]):
             #             k0s_decay+=[KE]
@@ -522,7 +551,7 @@ for lfile in FILES:
     # print()#
 
 
-    print("indiv","CCNC",[(len(total[c]),len(fiducial[c]),len(lam_valid[c]),len(K_valid[c])) for c in [0,1]],len(neutE),len(neutE_K),len(neutE_L),len(neutE_assoc))
+    if filecount&500==0: print("indiv","CCNC",[(len(total[c]),len(fiducial[c]),len(lam_valid[c]),len(K_valid[c])) for c in [0,1]],[len(neutE),np.mean(neutE)],[len(neutE_K),np.mean(neutE_K)],len(neutE_L),len(neutE_assoc))
     # print([(len(indiv_total[c[0]]),len(indiv_fiducial[c[0]]),len(indiv_decay[c[0]]),(np.quantile(indiv_total[c[0]],[.25,.5,.75,.9,.95,.99]) if len(indiv_total[c[0]]) else None)) for c in overall])
     # print()
         # print(l)
@@ -538,7 +567,7 @@ for k in indiv_total:
 print("scaling",len(neutE),scaling)
 cutoff=2000
 
-for c in [[r'primary $K^+$','with single MIP decay: '],[r'primary $\Lambda$',r'with p$\pi^-$ decay: '],[r'primary $K^0$',r'with $\pi^+\pi^-$ decay: ']]:
+for c in [[r'primary $K^+$','with at-rest single MIP decay'],[r'primary $\Lambda$',r'with p$\pi^-$ decay'],[r'primary $K^0$',r'with $\pi^+\pi^-$ decay']]:
 # for c in [["kp",1],["",0]]:
 #     bins=None
 #     for stat in [[total,r'Assoc. $\Lambda K^+$: '],
@@ -553,19 +582,23 @@ for c in [[r'primary $K^+$','with single MIP decay: '],[r'primary $\Lambda$',r'w
 
 
 
+
     if len(tot[tot<cutoff]):
-        (n, bins, patches)=plt.hist(tot[tot<cutoff],label=c[0]+f': {round(len(tot)* scaling)}',bins=30,weights=np.ones_like(tot[tot<cutoff]) * scaling)
+        (n, bins, patches)=plt.hist(tot[tot<cutoff],label=f'{c[0]}: {round(len(tot)* scaling)}',bins=30,weights=np.ones_like(tot[tot<cutoff]) * scaling)
         if len(fid[fid<cutoff]): 
             plt.hist(fid[fid<cutoff],label=f'with fiducial vertex: {round(len(fid)* scaling)}',bins=bins,weights=np.ones_like(fid[fid<cutoff]) * scaling)
             if len(dec[dec<cutoff]):
                 plt.hist(dec[dec<cutoff],label=c[1]+f': {round(len(dec)* scaling)}',bins=bins,weights=np.ones_like(dec[dec<cutoff]) * scaling)
+                if c[0]==r'primary $K^+$':
+                    dec=np.array(muon[c[0]])
+                    plt.hist(dec[dec<cutoff],label=r'with at-rest $\mu^+\nu$ decay'+f': {round(len(dec)* scaling)}',bins=bins,weights=np.ones_like(dec[dec<cutoff]) * scaling)
 
 # plt.hist(lam_cont,label=f'with children containment: {round(len(lam_cont)}',bins=bins)
 
     plt.legend()
     #plt.yscale('log')
     plt.xlabel("KE [MeV]")
-    plt.ylabel(r"Freq scaled to 800K $\nu$")
+    plt.ylabel(r"Freq scaled to 80K $\nu$")
     plt.tight_layout();plt.savefig(SAVEDIR+c[0])
     plt.clf()
 
@@ -574,12 +607,12 @@ print(len(contained),len(uncontained))
 
 for c in [["NC",1],["CC",0]]:
     bins=None
-    for stat in [[total,r'Assoc. $\Lambda K^+$: '],
-                 [fiducial,r'with fiducial vertex: '],
-                 [lam_valid,r'with p$\pi^-$ decay: '],
-                 [K_valid,r'with single MIP decay: ']]:
+    for stat in [[total,r'Assoc. $\Lambda K^+$'],
+                 [fiducial,r'with fiducial vertex'],
+                 [lam_valid,r'with p$\pi^-$ decay'],
+                 [K_valid,r'with single MIP decay']]:
         if bins is None: bins=30
-        (n, bins, patches)=plt.hist(stat[0][c[1]],label=stat[1]+f'{round(len(stat[0][c[1]])* scaling)}',bins=bins,weights=np.ones_like(stat[0][c[1]]) * scaling)
+        (n, bins, patches)=plt.hist(stat[0][c[1]],label=f'{stat[1]}: {round(len(stat[0][c[1]])* scaling)}',bins=bins,weights=np.ones_like(stat[0][c[1]]) * scaling)
         # plt.hist(fiducial[c[1]],label= {round(len(c[2])* scaling)}',bins=bins,weights=np.ones_like(c[2]) * scaling)
         # plt.hist(lam_valid[c[1]],label=rf'with p$\pi^-$ decay: {round(len(c[3])* scaling)}',bins=bins,weights=np.ones_like(c[3]) * scaling)
         # plt.hist(K_valid[c[1]],label=f'with single MIP decay: {round(len(c[4])* scaling)}',bins=bins,weights=np.ones_like(c[4]) * scaling)
@@ -589,7 +622,7 @@ for c in [["NC",1],["CC",0]]:
     plt.legend()
     #plt.yscale('log')
     plt.xlabel("Neutrino E [GeV]")
-    plt.ylabel(r"Freq scaled to 800K $\nu$")
+    plt.ylabel(r"Freq scaled to 80K $\nu$")
     plt.tight_layout();plt.savefig(SAVEDIR+c[0])
     plt.clf()
 
@@ -597,7 +630,7 @@ for c in [["NC",1],["CC",0]]:
 neutE=np.array(neutE)
 # neutE=neutE[neutE<10]
 (n, bins, patches)=plt.hist(neutE,bins=50,weights=np.ones_like(neutE) * scaling,label=rf"All $\nu$: {round(len(neutE)*scaling)}",alpha=.5)
-(n, bins, patches)=plt.hist(neutE_L,weights=np.ones_like(neutE_L) * scaling,alpha=.5,label=rf"$\nu\rightarrow\Lambda+X$: {round(len(neutE_L)*scaling)}",bins=bins)
+# (n, bins, patches)=plt.hist(neutE_L,weights=np.ones_like(neutE_L) * scaling,alpha=.5,label=rf"$\nu\rightarrow\Lambda+X$: {round(len(neutE_L)*scaling)}",bins=bins)
 (n, bins, patches)=plt.hist(neutE_K,weights=np.ones_like(neutE_K) * scaling,alpha=.5,label=rf"$\nu\rightarrow K^++X$: {round(len(neutE_K)*scaling)}",bins=bins)
 (n, bins, patches)=plt.hist(neutE_assoc,weights=np.ones_like(neutE_assoc) * scaling,alpha=.5,label=rf"All $\nu\rightarrow K^+\Lambda+X$: {round(len(neutE_assoc)*scaling)}",bins=bins)
 # (n, bins, patches)=plt.hist(neutE_assoc_CC,weights=np.ones_like(neutE_assoc_CC) * scaling,alpha=.5,label=r"CC $\nu\rightarrow K^+\Lambda+X$",bins=bins)
@@ -647,9 +680,9 @@ def add_labels(x, y):
 # plt.figure(figsize=(8, 5))
 plt.bar(sorted_keys, sorted_lengths, edgecolor='black')
     # plt.xticks(rotation = 45)
-plt.yscale('log')
+# plt.yscale('log')
 # plt.rcParams['text.usetex'] = True
-plt.ylabel(r"Freq scaled to 800K $\nu$")
+plt.ylabel(r"Freq scaled to 80K $\nu$")
 plt.xlabel("Particle")
 
 add_labels(sorted_keys,sorted_lengths)
@@ -740,13 +773,13 @@ w_bounds = (0, (xhi - xlo)/4)
 
 print("nominal cuts:",z_bounds,w_bounds)
 
-params, fom = optimize_containment_from_lists(
-    np.array(contained),
-    np.array(uncontained),
-    z_bounds=z_bounds,
-    w_bounds=w_bounds,
-    z_steps=int(z_bounds[1]),
-    w_steps=int(w_bounds[1])
-)
-print("Best parameters:", params)
-print("Best figure of merit:", fom)
+# params, fom = optimize_containment_from_lists(
+#     np.array(contained),
+#     np.array(uncontained),
+#     z_bounds=z_bounds,
+#     w_bounds=w_bounds,
+#     z_steps=int(z_bounds[1]),
+#     w_steps=int(w_bounds[1])
+# )
+# print("Best parameters:", params)
+# print("Best figure of merit:", fom)

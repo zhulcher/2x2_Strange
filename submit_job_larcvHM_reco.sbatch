@@ -2,11 +2,10 @@
 #SBATCH --job-name=test
 #SBATCH --output=output/output-%j.txt
 #SBATCH --error=error/error-%j.txt
-#SBATCH --partition=roma
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
-#SBATCH --mem-per-cpu=16g
-#SBATCH --time=8:00:00
+#SBATCH --mem-per-cpu=4g
+#SBATCH --time=0:10:00
 #SBATCH --account=neutrino:icarus-ml
 #SBATCH --qos=preemptable
 

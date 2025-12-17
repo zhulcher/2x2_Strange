@@ -1,12 +1,14 @@
 from statistics_plot_base import *
+from statistics_plot_lam import find_root_path,decay_angle_from_invariant_mass,MIN_LAM_MOM,MAX_LAM_MOM,MIN_PROT_MOM,MIN_PI_MOM
 
+from print_particle_record import load_cfg
 
 if __name__ == "__main__":
 
     import argparse
 
     parser = argparse.ArgumentParser(description='Script to plot K+/Lam Assoc. stats')
-    parser.add_argument('--mode', type=str, choices=["truth", "reco"], help='Reco or Truth running mode')
+    parser.add_argument('--mode', type=str, choices=["truth", "reco"], help='Reco or Truth running mode',default="reco")
     parser.add_argument('--N', type=int, default=sys.maxsize, help='Number of files to run')
 
     args = parser.parse_args()
@@ -28,7 +30,7 @@ if __name__ == "__main__":
     #         kaon_pass_order["MIP_CUTS"].pop(mykey)
 
 
-    def truth_interaction_id(lk:Interaction):
+    def truth_interaction_id(lk):
         if lk.is_matched:
             return lk.match_ids[0]
         return None
@@ -59,7 +61,7 @@ if __name__ == "__main__":
     assert os.path.isdir(LOCAL_EVENT_DISPLAYS), f"{LOCAL_EVENT_DISPLAYS} does not exist"
 
 
-    CCNCmap={0:"CC",1:"CC"}
+    CCNCmap={0:"CC",1:"NC"}
 
     NONLOCAL_EVENT_DISPLAYS=base_directory+FOLDER+"_files_"+args.mode
 
@@ -112,10 +114,97 @@ if __name__ == "__main__":
         for I in interactions:
             i=interactions[I]
             if is_contained(i[0][:3],margin=margin0):
+
                 primpdgsK=[z for z in i[1].keys() if z[1]==321]
                 primpdgsL=[z for z in i[1].keys() if z[1]==3122]
 
-                if len(primpdgsK) and len(primpdgsL):
+                TrueKaonspi=0
+                TrueKaonsmu=0
+
+                idx=0
+                if len(primpdgsK):
+                    kaon_list=[zz for zz in i[1][primpdgsK[0]] if zz[0]==321]
+                    
+                    kaon_list=[zz for zz in i[1][primpdgsK[idx]] if zz[0]==321]
+                    for key in range(len(primpdgsK)):
+                        kaon_list=[zz for zz in i[1][primpdgsK[key]] if zz[0]==321]
+                        if len(kaon_list):
+                            idx=key
+                            break
+                    assert len(kaon_list)
+                    kaon_list=kaon_list[0]
+                    valid_decays=[zz[0] for zz in i[1][primpdgsK[idx]] if zz[0] not in  [321]]
+                    child_list_mu=[zz for zz in i[1][primpdgsK[idx]] if zz[0] in [-13]]
+                    child_list_pi=[zz for zz in i[1][primpdgsK[idx]] if zz[0] in [211]]
+
+                    min_kaon_ke=csda_ke_lar(min_len,KAON_MASS)
+                    min_kaon_p=math.sqrt(min_kaon_ke**2 + 2 * min_kaon_ke * KAON_MASS)
+
+                    # assert type(min_kaon_ke)==float
+                    if valid_decays in [[211]] and child_list_pi[0][1]>200 and child_list_pi[0][1]<210 and kaon_list[1]>min_kaon_p: #is_contained(np.array(child_list[0][-1][-2]),margin=0) and is_contained(np.array(child_list[0][-1][-1]),margin=0)
+                        TrueKaonspi=1
+
+                    if valid_decays in [[-13]] and child_list_mu[0][1]>230 and child_list_mu[0][1]<240 and kaon_list[1]>min_kaon_p: #and is_contained(np.array(child_list[0][-1][-2]),margin=0) and is_contained(np.array(child_list[0][-1][-1]),margin=0)
+                        TrueKaonsmu=1
+                TrueLambdas=0
+
+                if len(primpdgsL):
+                    assert len(primpdgsL)==1
+                    #print("found lambda",primpdgs)
+                    testlam=i[1][primpdgsL[0]]
+                    ppi=[z[-1][0] for z in testlam if z[0] in [-211, 2212]]
+
+                    momenta=[z[1] for z in testlam if z[0] in [-211, 2212]]
+                    pdgs=[z[0] for z in testlam if z[0] in [-211, 2212]]
+                    if (len(ppi)==2 and 
+                        norm3d(np.array(i[0][:3])-np.array(ppi[0]))>min_len):#min decay len
+
+                        assert norm3d(np.array(ppi[0])-np.array(ppi[1]))<.0001
+
+                        pion_mom=momenta[np.argwhere(np.array(pdgs)==-211)[0][0]]
+                        proton_mom=momenta[np.argwhere(np.array(pdgs)==2212)[0][0]]
+
+                        theta,cos_theta,lam_mom=decay_angle_from_invariant_mass(pion_mom, proton_mom, PION_MASS, PROT_MASS, LAM_MASS)
+
+
+                        if (MIN_LAM_MOM<lam_mom and 
+                            lam_mom<MAX_LAM_MOM and 
+                            theta>np.pi/12 and 
+                            pion_mom>MIN_PI_MOM and 
+                            proton_mom>MIN_PROT_MOM):
+
+
+                            cfg = '''
+                                IOManager: {
+                                    Verbosity    : 4
+                                    Name         : "MainIO"
+                                    IOMode       : 0
+                                    InputFiles   : [%s]
+                                }
+                                '''% (find_root_path(file0))
+
+                            io = load_cfg(cfg)
+
+                            io.read_entry(I[0])
+                            truthinfo = io.get_data('particle', 'mpv').as_vector()
+                            nice_primaries=set([x.pdg_code() for x in truthinfo if (x.pdg_code() not in [2112,12,-12,14,-14,3122,22,111,311,-311]) and i[0][:3]==(x.position().x(),x.position().y(),x.position().z())])
+                            io.finalize()
+
+                            if len(nice_primaries)==0:
+                                print("skipped one")
+                                # continue
+
+                            elif len(set([13,-13,321,-321,2212,211,-211,11,-11]).intersection(nice_primaries))==0:
+                                raise Exception(nice_primaries)
+                            else:
+
+                                TrueLambdas=1
+
+
+
+                
+
+                if len(primpdgsK) and len(primpdgsL) and TrueKaonspi+TrueKaonsmu and TrueLambdas:
 
                     print(f"found true K+Lam {CCNCmap[i[-4]]} event")
                     testlam=i[1][primpdgsL[0]]
@@ -125,16 +214,16 @@ if __name__ == "__main__":
                         assert i[-4] in [0,1]
                         # print(f"this is an )
                         larcv_keys_assoc[i[-4]]+=[I]
-                if len(primpdgsK):
+                if len(primpdgsK) and TrueKaonspi+TrueKaonsmu:
                     print(f"found true K+ {CCNCmap[i[-4]]} event")
-                    testK=i[1][primpdgsK[0]]
+                    testK=i[1][primpdgsK[idx]]
                     # ppi=[z for z in testK if z[0] in [-211, 2212]]
                     # if len(ppi)==2:
                         # print("found valid lambda in truth")
                     assert i[-4] in [0,1]
                     # print(f"this is an )
                     larcv_keys_K[i[-4]]+=[I]
-                if len(primpdgsL):
+                if len(primpdgsL) and TrueLambdas:
 
                     print(f"found true Lam {CCNCmap[i[-4]]} event")
                     testlam=i[1][primpdgsL[0]]
@@ -144,12 +233,6 @@ if __name__ == "__main__":
                         assert i[-4] in [0,1]
                         # print(f"this is an )
                         larcv_keys_L[i[-4]]+=[I]
-                
-
-                            
-
-        
-
 
 
         # print("running",lfile)
@@ -165,28 +248,38 @@ if __name__ == "__main__":
         predk: list[PredKaonMuMich] = from_file['PREDKAON']
         predl: list[Pred_Neut] = from_file['PREDLAMBDA']
 
-        
+        n=kaon_pass_order["Valid MIP Len"]
+        x1 = n % 100
+        x2 = (n // 100) % 100
+        x3 = (n // 100**2) % 100
+        x4 = (n // 100**3) % 100
         for k in predk:
                 # if k.reason=="":
                 #     # if (entry,truth_interaction_id(k)) not in true_Kp_keys:
                 #     true_Kp_keys+=[(entry,truth_interaction_id(k))]
-                pc=k.pass_cuts((kaon_pass_order))*is_contained(k.reco_vertex,margin=margin0)
-
-
-                if set(k.pass_failure)==set([""]) and is_contained(k.reco_vertex,margin=margin0):
-
-                    num_mip=np.sum(k.primary_particle_counts[1:3])
-                    
-                    found_Kp_keys[int(num_mip==0)]+=[(k.event_number,k.truth_interaction_id)]
-                    
                 
+                primary_valid_len_mips=len([i for i in k.particles if i.is_primary and i.pdg_code==MUON_PID and 
+                                            ((28<i.reco_length and i.reco_length<32) or (50<i.reco_length and i.reco_length<58))])
+                pc=k.pass_cuts((kaon_pass_order))
+                pc*=is_contained(k.reco_vertex,margin=margin0)
+
+
+                if pc:
+                    num_mip=k.primary_particle_counts[MUON_PID]-primary_valid_len_mips
+                    
+                    found_Kp_keys[int(num_mip<=0)]+=[(k.event_number,k.truth_interaction_id)]
+                    
                     # print(k.hip.id,k.interaction.id)
                 
         # for entry in predl:
         for l in predl:
-                pc=l.pass_cuts((lam_pass_order))*is_contained(l.reco_vertex,margin=margin0)
-                if set(l.pass_failure)==set([""]) and is_contained(l.reco_vertex,margin=margin0):
-                    num_mip=np.sum(l.primary_particle_counts[1:3])
+                primary_valid_len_mips=len([i for i in l.particles if i.is_primary and i.pdg_code==MUON_PID and 
+                                            ((28<i.reco_length and i.reco_length<32) or (50<i.reco_length and i.reco_length<58))])
+                pc=l.pass_cuts((lam_pass_order))
+                pc*=is_contained(l.reco_vertex,margin=margin0)
+
+                if pc:
+                    num_mip=l.primary_particle_counts[MUON_PID]-primary_valid_len_mips
                     found_lam_keys[int(num_mip==0)]+=[(l.event_number,l.truth_interaction_id)]
 
 

@@ -33,7 +33,7 @@ kaon_pass_order_truth={
             # "MIP_CUTS":
             #     {
                 # "Connected Non-Primary MIP":True,
-            r"Low MIP len $\pi^0$ Tag":15,
+            r"$\pi^0$ Tag":15,
             "Michel Child":(20,5),
             
             "MIP Child At Most 1 Michel":True,
@@ -44,7 +44,7 @@ kaon_pass_order_truth={
             "Valid MIP Len":25 + 35*100 + 48*100**2 + 60*100**3,
 
             "Forward HIP":1,
-            "Separable MIP":np.pi/12,
+            
             "":True
 }
 
@@ -59,34 +59,43 @@ kaon_pass_order_reco={
             "Valid Interaction":True,
             rf"Primary $K^+$":True,
             "Initial HIP":True,
-            # "Correct HIP TPC Assoc.":True,
-            "Valid MIP Len":25 + 35*100 + 48*100**2 + 60*100**3,
-            "Michel Child":True, #TODO characterize the MIP distance in x using drift time
-
-            "Connected Non-Primary MIP":True,
-            r"Low MIP len $\pi^0$ Tag":10,
-            "Come to Rest":-.65, #maybe something to not cut when length too short
             
-            "Kaon Len":4.7,
-            "Close to Vertex":4.3,
+            
+            "Valid MIP Len":27 + 33*100 + 48*100**2 + 58*100**3,
+            "Michel Child":16, #TODO characterize the MIP distance in x using drift time
 
-            "MIP Child At Most 1 Michel":True,
+            "Connected Non-Primary MIP":3,
+
+            
+
+            # r"$\pi^0$ Rel KE Bound":1/3,
+
+            "Come to Rest":-.6, #maybe something to not cut when length too short
+            
+            "Kaon Len":5.5,
+            "Close to Vertex":7.5,
+
+            "MIP Child At Most 1 Michel":1.5,
             "No HIP Deltas":True,
-            "Come to Rest MIP":-.4,
-            "Single MIP Decay":True,
-            "Bragg Peak HIP": 6.6666666666666,
-            # "dedx chi2":100,
-            # "Nothing Before the Start":True,
-
-            # "Forward HIP":1,
-            # "Separable MIP":np.pi/24,
+            "Bragg Peak HIP": 5.5,
+            "Single MIP Decay":3,
+            
+            r"$\pi^0$ Quality":True,
+            r"$\pi^0$ Impact Parameter":10,
+            
+            r"Max Decay $\gamma$":True,#Needs to be last
+            r"$\pi^0$ Rel KE":-.4,
+            # "Bragg Peak MIP":4,
+            # "Come to Rest MIP":-.4,
+            
             # "No LOW E MIP Deltas":min_len/2,
+            # "Min HIP-MIP Angle":None,
             "":True
 }
 
 
 
-from concurrent.futures import ProcessPoolExecutor
+# from concurrent.futures import ProcessPoolExecutor
 
 print("cpu count",os.cpu_count())
 import argparse
@@ -106,12 +115,60 @@ def load_single_file(args:tuple)->tuple[str,list[PredKaonMuMich],list]:
 
 
 # @profile
+
+def TruthKaons(interactions):
+    Kpi=[]
+    Kmu=[]
+    for I in interactions:
+        i=interactions[I]
+        if is_contained(i[0][:3],margin=margin0):
+            primpdgs=[z for z in i[1].keys() if z[1]==321]
+            if len(primpdgs):
+                idx=0
+                kaon_list=[zz for zz in i[1][primpdgs[idx]] if zz[0]==321]
+                
+                for key in range(len(primpdgs)):
+                    kaon_list=[zz for zz in i[1][primpdgs[key]] if zz[0]==321]
+                    if len(kaon_list):
+                        idx=key
+                        break
+                # print(kaon_list,primpdgs)
+
+                
+                assert len(kaon_list),(primpdgs,kaon_list)
+                # if len(kaon_list)==0:
+                    # raise Exception("HUH???",primpdgs,i[1][primpdgs[idx]])
+                    # continue
+                kaon_list=kaon_list[0]
+                valid_decays=[zz[0] for zz in i[1][primpdgs[idx]] if zz[0] not in  [321]]
+                child_list_mu=[zz for zz in i[1][primpdgs[idx]] if zz[0] in [-13]]
+                child_list_pi=[zz for zz in i[1][primpdgs[idx]] if zz[0] in [211]]
+
+                min_kaon_ke=csda_ke_lar(min_len,KAON_MASS)
+                min_kaon_p=math.sqrt(min_kaon_ke**2 + 2 * min_kaon_ke * KAON_MASS)
+
+                # assert type(min_kaon_ke)==float
+                if valid_decays in [[211]] and child_list_pi[0][1]>200 and child_list_pi[0][1]<210 and kaon_list[1]>min_kaon_p: #is_contained(np.array(child_list[0][-1][-2]),margin=0) and is_contained(np.array(child_list[0][-1][-1]),margin=0)
+
+                    assert [zz[0] for zz in i[1][primpdgs[idx]]] in [[211,321],[211,321,321]],[zz[0] for zz in i[1][primpdgs[idx]]]
+                    Kpi+=[(I[0],I[1])]
+                    assert len(child_list_pi)
+                if valid_decays in [[-13]] and child_list_mu[0][1]>230 and child_list_mu[0][1]<240 and kaon_list[1]>min_kaon_p: #and is_contained(np.array(child_list[0][-1][-2]),margin=0) and is_contained(np.array(child_list[0][-1][-1]),margin=0)
+                    Kmu+=[(I[0],I[1])]
+                    
+                    assert [zz[0] for zz in i[1][primpdgs[idx]]] in [[-13,321],[-13,321,321]],[zz[0] for zz in i[1][primpdgs[idx]]]
+                    assert len(child_list_mu)
+    return (Kmu,Kpi)
+
+
+
+@profile
 def main():
 
     
 
     parser = argparse.ArgumentParser(description='Script to plot K+ stats')
-    parser.add_argument('--mode', type=str, choices=["truth", "reco"], help='Reco or Truth running mode')
+    parser.add_argument('--mode', type=str, choices=["truth", "reco"], help='Reco or Truth running mode',default="reco")
     parser.add_argument('--N', type=int, default=sys.maxsize, help='Number of files to run')
     parser.add_argument('--single_file',type=str, default="",help="if set, just run this file, and don't plot")
 
@@ -132,12 +189,8 @@ def main():
     num_nu_from_file=0
 
     # for i in lam_pass_order
-    kaon_reason_map=[defaultdict(int),defaultdict(int)]
     kaon_pass_failure=[defaultdict(int),defaultdict(int)]
-
-
     kaon_pass_failure_mu=[defaultdict(int),defaultdict(int)]
-
     kaon_pass_failure_pi=[defaultdict(int),defaultdict(int)]
 
     
@@ -197,43 +250,56 @@ def main():
 
     K_clustering=[[],[]]
 
-    closest_FM= defaultdict(lambda: defaultdict(list))
+    # closest_FM= defaultdict(lambda: defaultdict(list))
     
 
     
     # K_mom=[[],[]]
 
-    K_mom=[]
-    mu_mom=[]
-    pi_mom=[]
+    # K_mom=[]
+    # mu_mom=[]
+    # pi_mom=[]
 
     Bragg_peak_disc=defaultdict(lambda: defaultdict(list))
+    Bragg_peak_MIP_disc=defaultdict(lambda: defaultdict(list))
 
-    Bragg_peak_sigma_disc=defaultdict(lambda: defaultdict(list))
+    # Bragg_peak_sigma_disc=defaultdict(lambda: defaultdict(list))
 
     Bragg_peak_mip=defaultdict(lambda: defaultdict(list))
 
     come_to_rest_dict=defaultdict(lambda: defaultdict(list))
     come_to_rest_prot=defaultdict(lambda: defaultdict(list))
     come_to_rest_pi=defaultdict(lambda: defaultdict(list))
+
+
+    CTR_MIP_disc=defaultdict(lambda: defaultdict(list))
+
     chi2=defaultdict(lambda: defaultdict(list))
 
     come_to_rest_simpler=defaultdict(lambda: defaultdict(list))
 
 
-    come_to_rest_len=defaultdict(lambda: defaultdict(list[tuple]))
+    come_to_rest_len=defaultdict(lambda: defaultdict(list))
 
-    Bragg_peak_len=defaultdict(lambda: defaultdict(list[tuple]))
-
-    Bragg_peak_simple=defaultdict(lambda: defaultdict(list[tuple]))
-
-    forward_disc=defaultdict(lambda: defaultdict(list))
+    Bragg_peak_len=defaultdict(lambda: defaultdict(list))
 
 
     primary_kp=defaultdict(lambda: defaultdict(list))
 
 
     MCS_dir=[[0,0],[0,0]]
+
+    michel_ke_dist_disc=defaultdict(lambda: defaultdict(list))
+
+    hip_mip_angle=defaultdict(lambda: defaultdict(list))
+
+    HIP_MIP_disc=defaultdict(lambda: defaultdict(list))
+
+    pi0_impact_disc=defaultdict(lambda: defaultdict(list))
+    pi0_rel_KE_disc=defaultdict(lambda: defaultdict(list))
+
+
+
 
 
 
@@ -262,7 +328,7 @@ def main():
     K_dir_before=[[],[]]
     # missing_pi_lens=[]
 
-    tracking_threshold=[[],[]]
+    # tracking_threshold=[[],[]]
 
 
     vertex_dz=[]
@@ -291,7 +357,6 @@ def main():
 
     # mip_len=defaultdict(lambda: defaultdict(list))
     # hip_len=defaultdict(lambda: defaultdict(list))
-    # vae = defaultdict(lambda: defaultdict(list))
 
 
 
@@ -335,16 +400,16 @@ def main():
         assert args.single_file in files
         args_list = [(args.single_file, d0, directory2)]
 
-    results:list[tuple[str,list[PredKaonMuMich],list]] = []
+    # results:list[tuple[str,list[PredKaonMuMich],list]] = []
     
     # with ProcessPoolExecutor() as executor:
     #     for result in tqdm(executor.map(load_single_file, args_list), total=len(args_list)):
     #         results.append(result)
 
-    from concurrent.futures import ProcessPoolExecutor, as_completed,ThreadPoolExecutor
+    # from concurrent.futures import ProcessPoolExecutor, as_completed,ThreadPoolExecutor
 
-    results = []
-    max_cpus = os.cpu_count()
+    # results = []
+    # max_cpus = os.cpu_count()
     # with ProcessPoolExecutor(max_workers=max_cpus) as executor:
     # with ThreadPoolExecutor(max_workers=8) as executor:
     #     futures = [executor.submit(load_single_file, arg) for arg in args_list]
@@ -352,12 +417,14 @@ def main():
     #         results.append(future.result())
 
 
-    for args0 in tqdm(args_list, total=len(args_list)):
-        result = load_single_file(args0)
-        results.append(result)
+    # for args0 in tqdm(args_list, total=len(args_list)):
+    #     result = load_single_file(args0)
+    #     results.append(result)
 
-    for file0, predk, particles in results:
-        if filecount == 0 and args.single_file=="":
+    for args0 in args_list:
+        
+    # for file0, predk, particles in results:
+        if filecount == 0:# and args.single_file=="":
             clear_html_files(LOCAL_EVENT_DISPLAYS)
         if filecount % 500 == 0:
             print("filecount", filecount, "kaon eff/pur",
@@ -367,6 +434,9 @@ def main():
         if filecount == MAXFILES:
             break
         filecount += 1
+        # if filecount<22500: continue
+
+        file0, predk, particles=load_single_file(args0)
 
         kfile=os.path.join(d0, file0)
         kfile_truth=os.path.join(directory2, file0)
@@ -375,8 +445,7 @@ def main():
         def save_my_html(newpath,name,name2):
             # print("saving:",newpath)
             copy_and_rename_file(NONLOCAL_EVENT_DISPLAYS,kfile,newpath,name,name2,args.mode)
-        K_to_pi_list=[]
-        K_to_mu_list=[]
+        
 
     ###################
     #########################
@@ -403,805 +472,616 @@ def main():
     #         # kaons = np.load(kfile, allow_pickle=True)
     #         predk: list[PredKaonMuMich] = kaons['PREDKAON']
     #################################
-        if True:
+        # if True:
 
-            # num_nu+=kaons['NUMNU']
+        # num_nu+=kaons['NUMNU']
 
-            both_there=True
-            for f in [kfile,kfile_truth]:
-                both_there*=os.path.exists(f)#, f"File not found: {f}"
-            if not both_there:
-                print("had to skip because",f"File not found: {file0,kfile,kfile_truth}")
-                continue
+        both_there=True
+        for f in [kfile,kfile_truth]:
+            both_there*=os.path.exists(f)#, f"File not found: {f}"
+        if not both_there:
+            print("had to skip because",f"File not found: {file0,kfile,kfile_truth}")
+            continue
 
-            # particles = np.load(kfile_truth, allow_pickle=True)
+        # particles = np.load(kfile_truth, allow_pickle=True)
 
-            num_nu_from_file+=len(particles[1][0])
-            # interactions=particles[3]
-            # lambdas_true=particles[0][3122]
+        num_nu_from_file+=len(particles[1][0])
+        # interactions=particles[3]
+        # lambdas_true=particles[0][3122]
+        
+        interactions=particles[2]
+
+        K_to_mu_list,K_to_pi_list=TruthKaons(interactions)
+
+        
+        
+
+
+        # for key in predk:
+        # if True:
+            # seen_mips=set()
+        valid_ints:list[tuple[int,int]]=K_to_pi_list+K_to_mu_list
+        TrueKaonsmu+=len(K_to_mu_list)
+        TrueKaonspi+=len(K_to_pi_list)
+        TrueKaons+=len(valid_ints)
+
+        # if len(valid_ints):
+        #     print(valid_ints)
+
+        
+        for gk in valid_ints:
+            add_it=True
+            for k in predk:
+                if k.truth_interaction_id==gk[1] and k.event_number==gk[0] and k.reason=="":
+                    add_it=False
+                    break
+            if add_it:
+                print("completely missed a K+")
+                # print(f"found completely missing with length {missing_len}")
+                # try:
+                save_my_html(LOCAL_EVENT_DISPLAYS+'completely_missed',create_html_filename(gk[0], kfile,extra="_pi" if gk in K_to_pi_list else "_mu"),gk[0])
+        for mu in predk:
+            # assert type(mu)==PredKaonMuMich
+
+            # raise Exception(mu.__dict__)
+            # for attr in mu.__slots__:
+            #     value = getattr(mu, attr)
+            #     print(f"{attr}: {type(value)}, size: {asizeof.asizeof(value)} bytes")
+
+            key=mu.event_number
+            truth_kaon_key=(key,mu.truth_interaction_id)
+
+            if (truth_kaon_key in valid_ints):
+                assert is_contained(mu.truth_interaction_vertex,margin=margin0)
+
+            is_true=mu.truth*(truth_kaon_key in valid_ints)#*(truth_kaon_key in K_to_pi_list)
+            # if valid_ints:
+                # print(truth_kaon_key,valid_ints,(truth_kaon_key in valid_ints))
+            # if mu.truth:
+            #     print("help",truth_kaon_key)
             
-            interactions=particles[2]
+            if is_true:
+                assert mu.truth_hip is not None
+                
+                if mu.truth_hip.track_id<100: assert (mu.truth_hip.ke>csda_ke_lar(min_len,KAON_MASS)),(mu.truth_hip.ke,csda_ke_lar(min_len,KAON_MASS),mu.truth_hip.ancestor_creation_process,mu.truth_hip.track_id,mu.truth_hip.id)
+                assert (mu.truth_hip.ancestor_creation_process=="primary") or (mu.truth_hip.parent_id==mu.truth_hip.id and mu.truth_hip.ancestor_pdg_code==321)
+                # print(mu.truth_hip.ke,csda_ke_lar(min_len,KAON_MASS),mu.truth_hip.ancestor_creation_process,mu.truth_hip.track_id,mu.truth_hip.id)
+                # is_true*=(mu.truth_hip.ke>csda_ke_lar(min_len,KAON_MASS))*(mu.truth_hip.ancestor_creation_process=="primary")
 
+                K_dir_before[0]+=[angle_between(mu.hip.momentum,mu.truth_hip.momentum)]
+                K_dir_before[1]+=[mu.hip.reco_length]
+            
+            pc=mu.pass_cuts(kaon_pass_order)#temp_file=os.path.basename(file0)
+            pc*=is_contained(mu.reco_vertex,margin=margin0)
+              
 
-            valid_ints=[]
+            def quick_save(dir):
+                save_my_html(LOCAL_EVENT_DISPLAYS+dir,create_html_filename(key, kfile,extra=f"{mu.hip.id}_{[float(i) for i in mu.reco_vertex]}"),key)
 
-            # interaction_pos_dict=defaultdict(list)
-            for I in interactions:
-                i=interactions[I]
-                if is_contained(i[0][:3],margin=margin0):
-                    primpdgs=[z for z in i[1].keys() if z[1]==321]
-                    if len(primpdgs):
-                        # TODO this is vaid if not in mPVMPR
-                        if len(primpdgs)==0:
-                            continue
-                        
-                        # assert len(primpdgs)==1,i[1].keys()
-                        # print(i[1][primpdgs[0]])
-                        # print()
-                        kaon_list=[zz for zz in i[1][primpdgs[0]] if zz[0]==321]
+            if is_true:
+                assert mu.truth_hip is not None
+                if len(mu.hm_pred): HM_acc_K[0] += [mu.hm_pred[mu.hip.id][HIP_HM]/(mu.hm_pred[mu.hip.id][HIP_HM]+mu.hm_pred[mu.hip.id][MIP_HM])]
+                HM_acc_K[1] += [int(mu.hip.pid in [3,4,5])]
 
+                K_primary[int(mu.hip.is_primary)]+=[np.linalg.norm(mu.hip.start_point-mu.reco_vertex)]
 
-                        
+                overlaps=mu.match_overlaps
+                if len(overlaps)==0:
+                    K_clustering[False]+=[0]
+                else:
+                    K_clustering[mu.is_flash_matched]+=[overlaps[0]]
 
-                        if len(kaon_list)==0:
-                            print("HUH???",primpdgs,i[1][primpdgs[0]])
-                            continue
-                        kaon_list=kaon_list[0]
-                        child_list=[zz for zz in i[1][primpdgs[0]] if zz[0] in [-13,211]]
-                        
-                        # for zz in i[1][primpdgs[0]]:
+                    if overlaps[0]<.2:
+                        quick_save('/error_clustering/')
 
-                            # print(zz,"zz")
-                            # if zz[0] in [-13]:
-                        # print(,"kaon_list")
-                        valid_decays=[zz[0] for zz in i[1][primpdgs[0]] if zz[0] not in  [321]]
+                K_dir[0]+=[angle_between(mu.hip.momentum,mu.truth_hip.momentum)]
+                K_dir[1]+=[mu.hip.reco_length]
+                if len(mu.match_overlaps)>0 or type(mu.hip)==TruthParticle:
+                    vertex_displacement+=[np.linalg.norm(mu.truth_interaction_vertex-mu.reco_vertex)]
+                    vertex_dz+=[mu.truth_interaction_vertex[2]-mu.reco_vertex[2]]
 
-                        
+                    if np.linalg.norm(mu.truth_interaction_vertex-mu.reco_vertex)>20:
+                        quick_save(f'/error_vertex_true_to_reco_dist/')
+                if angle_between(mu.hip.momentum,mu.truth_hip.momentum)>np.pi/2 and mu.hip.reco_length>min_len:
+                    quick_save('/error_hip_direction/')
+                for p in mu.particles:
+                    if p.reco_length>20 and p.is_matched and p.match_ids[0] in mu.decay_mip_dict and p.pid not in [MUON_PID,PION_PID]:
+                        quick_save('/error_MIP_PID/')
 
+                
+            mpf=mu.pass_failure[0]
+            if mpf=="":
+                assert len(mu.pass_failure)==1,mu.pass_failure
 
-                        increased=False
-                        child_list_mu=[zz for zz in i[1][primpdgs[0]] if zz[0] in [-13]]
-                        child_list_pi=[zz for zz in i[1][primpdgs[0]] if zz[0] in [211]]
+            GAMMA_CAND=[p for p in mu.particles if is_contained(p.start_point,margin=-5) and p.shape in [MICHL_SHP,SHOWR_SHP,LOWES_SHP] and len(p.points)>=3]
+            for pk in mu.potential_kaons:
+                for passing_mu in pk[1]:
 
+                    mip_candidate=passing_mu[0]
+                    if mip_candidate.reco_length<=0: continue
+                    # if mip_candidate in seen_mips: continue
 
-                        if valid_decays in [[211],[-13]]:
-                            # print(valid_decays,child_list_mu,child_list_pi)
-                            kaon_ke=csda_ke_lar(min_len,KAON_MASS)
-                            assert type(kaon_ke)==float
-                            if valid_decays in [[211]] and child_list_pi[0][1]>200 and child_list_pi[0][1]<210 and is_contained(np.array(child_list[0][-1][-2]),margin=0) and is_contained(np.array(child_list[0][-1][-1]),margin=0) and kaon_list[1]>.95*math.sqrt(kaon_ke**2 + 2 * kaon_ke * KAON_MASS):
-                                # assert 
-                                # print("Got a pi")
-                                valid_ints+=[[I[0],I[1]]]
-                                TrueKaons+=1
-                                increased=True
-                                # assert 
-                            if valid_decays in [[-13]] and child_list_mu[0][1]>230 and child_list_mu[0][1]<240 and is_contained(np.array(child_list[0][-1][-2]),margin=0) and is_contained(np.array(child_list[0][-1][-1]),margin=0) and kaon_list[1]>.95*math.sqrt(kaon_ke**2 + 2 * kaon_ke * KAON_MASS):
-                                # assert 
-                                # print("Got a mu")
-                                valid_ints+=[[I[0],I[1]]]
-                                TrueKaons+=1
-                                increased=True
-                            # raise Exception(child_list[0][-1],child_list[0][-1][-2])
-
-
-
-                        if increased:
-                            if [zz[0] for zz in i[1][primpdgs[0]]]==[211,321]:
-                                K_to_pi_list+=[(I[0],I[1])]
-                                
-                                
-                            if [zz[0] for zz in i[1][primpdgs[0]]]==[-13,321]:
-                                K_to_mu_list+=[(I[0],I[1])]
-                            
-                            
-
-
-                        # if len
-
-                        # print("LOOK HERE",i[1][primpdgs[0]])
-
-                        if len(child_list_mu):
-                            mu_mom+=[child_list_mu[0][1]]
-                            if increased:TrueKaonsmu+=1
-
-                        if len(child_list_pi):
-                            pi_mom+=[child_list_pi[0][1]]
-                            if increased:TrueKaonspi+=1
-
-                        K_mom+=[kaon_list[1]]
+                    truth_mip=None
+                    if type(mip_candidate)==TruthParticle:
+                        truth_mip=mip_candidate
+                    elif type(mip_candidate)==RecoParticle:
 
                         
-
-                        if len(child_list):
-
-                        # ent=[z for z in i[1].keys() if z[1]==321][0]
-                        # start=
-                            start=np.array(kaon_list[-1][-2])
-                            # end
-                            end=np.array(child_list[0][-1][-2])
-                            # print(start,end)
-                            # if 
-                            missing_len=np.linalg.norm(np.array(start)-np.array(end))
-                            # print(missing_len)
-                        else:
-                            missing_len=-1
-                        # print("found K+",primpdgs)
-                        # testlam=i[1][primpdgs[0]]
-                        add_it=True
-                        # TrueKaons+=1
-                        # if I[0] in predk:
-                        # missing_len=-1
-                        found_something=False
-                        for k in predk:
-                            if k.truth_interaction_id==I[1] and k.event_number==I[0]:
-                                # if len(k.truth_Kp):
-                                    # p=k.truth_Kp[list(k.truth_Kp.keys())[0]]
-                                
-                                if k.truth_hip!=None:
-                                    if k.truth_hip.pdg_code==321 and k.truth_hip.is_primary:
-                                        found_something=True
-                                    # break
-                                if k.reason=="":
-                                    add_it=False
-                                    # print("found the K+ in events")
-                        if add_it and increased:
-                            
-                            # print("completely missed a K+")
-
-                            # print(f"found completely missing with length {missing_len}")
-
-                            
-                            
-                            # try:
-                            save_my_html(LOCAL_EVENT_DISPLAYS+'completely_missed',create_html_filename(I[0], kfile,extra=""),I[0])
-                        tracking_threshold[found_something]+=[missing_len]
-                        # else:
-                            # tracking_threshold[True]+=[missing_len]
-
-
-
-            # for key in predk:
-            if True:
-                for mu in predk:
-                    # assert type(mu)==PredKaonMuMich
-
-                    # raise Exception(mu.__dict__)
-                    # for attr in mu.__slots__:
-                    #     value = getattr(mu, attr)
-                    #     print(f"{attr}: {type(value)}, size: {asizeof.asizeof(value)} bytes")
-
-                    key=mu.event_number
-
-                    is_true=mu.truth*is_contained(mu.truth_interaction_vertex,margin=margin0)*([key,mu.truth_interaction_id] in valid_ints)#*((key,mu.truth_interaction_id) in K_to_pi_list)
-                    if is_true:
-                        assert mu.truth_hip is not None
-                        is_true*=(mu.truth_hip.ke>csda_ke_lar(min_len,KAON_MASS))*(mu.truth_hip.ancestor_creation_process=="primary")
-
-                    # truth_hip=mu.truth_hip
-
-                    if is_true:
-                        assert mu.truth_hip is not None
-                        K_dir_before[0]+=[angle_between(mu.hip.momentum,mu.truth_hip.momentum)]
-                        K_dir_before[1]+=[mu.hip.reco_length]
-                    
-                    pc=mu.pass_cuts(kaon_pass_order)
-                    inter =mu.reco_vertex
-                    # pc*=is_contained(inter,margin=margin0)
-                    
-
-                    
-
-                    def quick_save(dir):
-                        save_my_html(LOCAL_EVENT_DISPLAYS+dir,create_html_filename(key, kfile,extra=str(mu.hip.id)),key)
-
-                    # if mu.error!="":
-                    #     print("VERY BAD ERROR",key,mu.error)
-                    # print("event",key)
-
-                    
-
-                    
-                    
-
-
-                    if not mu.is_flash_matched:
-                        if len([np.linalg.norm(np.array(i[0])-inter) for i in mu.fm_interactions if i[1]]):
-                            closest_FM[is_true][1]+=[min([np.linalg.norm(np.array(i[0])-inter) for i in mu.fm_interactions if i[1]])]
-
-                    # if is_true:
-                        
-
-
-
-                    if is_true:
-                        # print(mu.hm_pred)
-                        if len(mu.hm_pred): HM_acc_K[0] += [mu.hm_pred[mu.hip.id][HIP_HM]/(mu.hm_pred[mu.hip.id][HIP_HM]+mu.hm_pred[mu.hip.id][MIP_HM])]
-                        HM_acc_K[1] += [int(mu.hip.pid in [3,4,5])]
-
-                        K_primary[int(mu.hip.is_primary)]+=[np.linalg.norm(mu.hip.start_point-inter)]
-
-                        overlaps=mu.match_overlaps
-                        if len(overlaps)==0:
-                            K_clustering[False]+=[0]
-                        else:
-                            K_clustering[mu.is_flash_matched]+=[overlaps[0]]
-
-                            if overlaps[0]<.2:
-                                quick_save('/error_clustering/')
-
-
-                        # for m in mu.truth_pi0_gamma:
-                            # if 
-
-                        # K_mom[0]+=[np.linalg.norm(fixed_prot_mom)]
-                        # K_mom[1]+=[truth_hip.p]
-
-                        assert mu.truth_hip is not None
-                        K_dir[0]+=[angle_between(mu.hip.momentum,mu.truth_hip.momentum)]
-                        K_dir[1]+=[mu.hip.reco_length]
-                        if len(mu.match_overlaps)>0 or type(mu.hip)==TruthParticle:
-                            vertex_displacement+=[np.linalg.norm(mu.truth_interaction_vertex-inter)]
-                            vertex_dz+=[mu.truth_interaction_vertex[2]-inter[2]]
-
-                            if np.linalg.norm(mu.truth_interaction_vertex-inter)>20:
-                                quick_save('/error_vertex_true_to_reco_dist/')
-                        if angle_between(mu.hip.momentum,mu.truth_hip.momentum)>np.pi/2 and mu.hip.reco_length>min_len:
-                            quick_save('/error_hip_direction/')
-
-                    
-
-                    # if not is_true and not pc:
-                    #     continue
-
-
-                    # if is_true:
-                        # if pc:
-                            # assert (key,mu.truth_interaction_id) in K_to_pi_list+K_to_mu_list,((key,mu.truth_interaction_id),K_to_pi_list+K_to_mu_list)
-
-
-
-
-                    # if not is_true:
-                        # print(mu.pass_failure)
-
-                    # plen=[i.reco_length for i in p]
-
-                    good_mip_len=False
-                    good_mip_forward=False
-                    good_prim=False
-
-                    for k in mu.potential_kaons:
-                        for p in k[1]:
-                            mc=p[1]
-                            if mc in [[],["Kaon Len"]]:
-                                good_mip_len=True
-                            if mc in [[],["Forward HIP"]]:
-                                good_mip_forward=True
-                            if mc in [[],["Close to Vertex"]]:
-                                good_prim=True
-                    
-                    kaon_len[is_true][good_mip_len]+= [mu.hip.reco_length]
-
-                    if mu.truth_hip is not None:
-
-                        forward_disc[is_true][good_mip_forward]+= [angle_between(mu.truth_hip.momentum,np.array([0,0,1]))]
-                        primary_kp[is_true][good_prim]+=[np.linalg.norm(mu.hip.start_point-mu.reco_vertex)]
-
-
-                    
-
-                    # unique_mip_match=(lam_mip_candidate.match_ids[0]==best_mip_match.id)*(particles[best_mip_match.match_ids[0]].id==lam_mip_candidate.id)
-
-                    # if pc and not is_true:
-                    #     if not is_contained(inter,margin=margin0):
-                    #         continue
-
-                    mpf=mu.pass_failure[0]
-                    if mpf=="":
-                        assert len(mu.pass_failure)==1,mu.pass_failure
-
-                    # seen_mips=[]
-                    if True:
-
-                    # if mode
-
-                        for pk in mu.potential_kaons:
-                            for passing_mu in pk[1]:
-                                if passing_mu[0].reco_length<=0: continue
-                                # if passing_mu[0] in seen_mips: continue
-                                truth_mip=None
-                                if type(passing_mu[0])==TruthParticle:
-                                    truth_mip=passing_mu[0]
-                                elif type(passing_mu[0])==RecoParticle:
-
-                                    
-                                    if passing_mu[0].is_matched:
-                                        if passing_mu[0].match_ids[0] in mu.decay_mip_dict:
-                                            truth_mip=mu.decay_mip_dict[passing_mu[0].match_ids[0]]
-
-                                    # max_edep=0
-                                    # for i in mu.particles:
-                                    #     for v in range(len(i.points)):
-                                    #         if np.linalg.norm(i.points[v]-passing_mu[0].end_point)<2.5:
-                                    #             max_edep=max(max_edep,i.depositions[v])
-                                    # end = 
-                                    # all_points = np.concatenate([p.points for p in mu.particles], axis=0)
-                                    # all_deps   = np.concatenate([p.depositions for p in mu.particles], axis=0)
-
-                                    # dists = np.linalg.norm(all_points - end, axis=1)
-                                    # mask = dists < 2.5
-                                valid_decay=mu.truth
-                                if truth_mip is None:
-                                    valid_decay=0
-                                elif not pk[0].is_matched:
-                                    valid_decay=0
-                                elif pk[0].match_ids[0] not in mu.kaon_path:
-                                    valid_decay=0
-                                else:
-                                    assert type(truth_mip)==TruthParticle
-                                    valid_decay*=int(truth_mip.parent_id==mu.kaon_path[pk[0].match_ids[0]].id or norm3d(truth_mip.start_point-mu.kaon_path[pk[0].match_ids[0]].end_point)<min_len/2)
-
-                                if pc and is_true and passing_mu[0].reco_length>10:
-                                    # dists = np.linalg.norm(passing_mu[0].points - passing_mu[0].end_point, axis=1)
-                                    # mask = dists < 10
-                                    # max_edep = np.median(passing_mu[0].depositions[mask]*np.power(dists[mask],.42)) if np.any(mask) else 0
-                                    max_edep,_=Bragg_Peak(passing_mu[0])
-                                    if valid_decay:
-                                        assert truth_mip is not None
-                                        Bragg_peak_mip[angle_between(passing_mu[0].momentum,truth_mip.momentum)<np.pi/2][True]+=[max_edep] #TODO there is something up with the scaling when the cut parameter is changed 
-
-                                    # dists = np.linalg.norm(passing_mu[0].points - passing_mu[0].start_point, axis=1)
-                                    # mask = dists < 10
-                                    # max_edep = np.median(passing_mu[0].depositions[mask]*np.power(dists[mask],.42)) if np.any(mask) else 0
-                                    pm_copy=copy.deepcopy(passing_mu[0])
-                                    pm_copy.start_point,pm_copy.end_point=pm_copy.end_point,pm_copy.start_point
-                                    max_edep,_=Bragg_Peak(pm_copy)
-                                    if valid_decay:
-                                        assert truth_mip is not None
-                                        Bragg_peak_mip[angle_between(passing_mu[0].momentum,truth_mip.momentum)>np.pi/2][True]+=[max_edep] #TODO there is something up with the scaling when the cut parameter is changed 
-
-
-                                    
-                               
-                                # order=np.argsort(dists)
-                                # deps=pk[0].depositions
-                                # mask = dists < 10
-                                # max_edep = np.median(pk[0].depositions[mask]*np.power(dists[mask],.42)) if np.any(mask) else 0
-                                # max_edep=
-
-                                # if len(mask)>=10:
-                                    dists = np.linalg.norm(pk[0].points - pk[0].end_point, axis=1)
-                                    slope, intercept = np.polyfit(dists ,pk[0].depositions, 1)
-                                # else:
-                                    # slope=np.nan
-                                # sigma_edep=slope#np.std(pk[0].depositions[mask]*np.power(dists[mask],.42))/np.std(pk[0].depositions[mask]) if np.any(mask) else 0
-
-                                    # max_edep = np.max(all_deps[mask]) if np.any(mask) else 0
-
-
-                                    
-
-                                
-                                if pk[0].reco_length>10: Bragg_peak_disc[valid_decay][passing_mu[1] in [["Bragg Peak HIP"],[]]]+=[Bragg_Peak(pk[0])[0]] #TODO there is something up with the scaling when the cut parameter is changed 
-                                # Bragg_peak_sigma_disc[valid_decay][passing_mu[1] in [["Bragg Peak HIP"],[]]]+=[sigma_edep] #TODO there is something up with the scaling when the cut parameter is changed 
-
-                                if pk[0].reco_length>5:
-                                    come_to_rest_dict[valid_decay][passing_mu[1] in [["Come to Rest"],[]]]+=[come_to_rest(pk[0])] #TODO there is something up with the scaling when the cut parameter is changed 
-                                    come_to_rest_prot[valid_decay][passing_mu[1] in [["Come to Rest"],[]]]+=[come_to_rest(pk[0],PROT_MASS)] #TODO there is something up with the scaling when the cut parameter is changed 
-                                    come_to_rest_pi[valid_decay][passing_mu[1] in [["Come to Rest"],[]]]+=[come_to_rest(pk[0],PION_MASS)] #TODO there is something up with the scaling when the cut parameter is changed 
-                                    come_to_rest_simpler[valid_decay][passing_mu[1] in [["Come to Rest"],[]]]+=[np.clip(csda_ke_lar(pk[0].reco_length, KAON_MASS)-pk[0].calo_ke,-150,150)]
-
-                                if (valid_decay or passing_mu[1] in [["dedx chi2"],[]]) and pk[0].reco_length>10 and np.sum([norm3d(f.start_point-pk[0].end_point)<min_len for f in mu.particles if f!=passing_mu[0]])==0:
-                                    chi2[valid_decay][passing_mu[1] in [["dedx chi2"],[]]]+=[Bragg_Peak(pk[0])[1]]
-
-                                
-
-                                if (valid_decay or passing_mu[1] in [["Come to Rest"],[]]) and pk[0].reco_length>0:
-                                    come_to_rest_len[valid_decay][passing_mu[1] in [["Come to Rest"],[]]]+=[(pk[0].reco_length,come_to_rest(pk[0],KAON_MASS))]
-                                if (valid_decay or passing_mu[1] in [["Bragg Peak HIP"],[]]) and pk[0].reco_length>10:
-                                    Bragg_peak_len[valid_decay][passing_mu[1] in [["Bragg Peak HIP"],[]]]+=[(pk[0].reco_length,Bragg_Peak(pk[0])[0])]
-
-
-                                    # for i in range(1,10):
-
-
-
-                                if valid_decay:
-                                    assert truth_mip is not None
-                                    MCS_dir[int(np.dot(truth_mip.end_point-truth_mip.start_point,passing_mu[0].end_point-passing_mu[0].start_point)>0)][int(MCS_direction_prediction(passing_mu[0]))]+=1
-
-                                    # if passing_mu[1] in [["Come to Rest"],[]]:
-                                        # seen_mips+=[passing_mu[0]]
-                                                            
-                                        
-                                
-                                # ent=ent0[0]
-                                # if type(ent)==int:continue
-
-                                if truth_mip==None:
-                                    mip_truth0=False
-                                else:
-
-                                    
-                                    mip_truth0=int((truth_mip.ancestor_pdg_code==321)*(truth_mip.parent_pdg_code==321)*(truth_mip.creation_process=="Decay")*(abs(truth_mip.pdg_code) in [211,13])*valid_decay)
-                                
-                                mip_truth1=mip_truth0*([key,mu.truth_interaction_id] in valid_ints)
-                                            
-
-                                        # for g in mu.truth_pi0_gamma:
-                                        #     truth
-                                    # MIP_gamma_cost_disc
-                                plen=passing_mu[0].reco_length
-                                # if len(passing_mu)>1:
-                                    # quick_save('/error_mip_break')
-                                # print(passing_mu[1])
-                                muon_len[mip_truth1][passing_mu[1] in [["Valid MIP Len"],[]]] += [plen]
-
-                                if (not mip_truth1) and passing_mu[1]==[] and mip_truth0:
-                                    quick_save('/good_mip_bad_city/')
-                            # print(pk[2])
-
-                            
-                        #     for non_passing_mu in pk[2]:
-                        #         if non_passing_mu[0][0] in seen_mips:
-                        #             continue
-                        #         seen_mips+=[non_passing_mu[0][0]]
-                        #         if non_passing_mu[0][0].reco_length<=0: continue
-                        #         if type(non_passing_mu[0][0])==TruthParticle:
-                        #             truth_mip=non_passing_mu[0][0]
-                        #         elif type(non_passing_mu[0][0])==RecoParticle:
-
-                        #             truth_mip=None
-                        #             if non_passing_mu[0][0].is_matched:
-                        #                 if non_passing_mu[0][0].match_ids[0] in mu.decay_mip_dict:
-                        #                     truth_mip=mu.decay_mip_dict[non_passing_mu[0][0].match_ids[0]]
-                        #             if mpf=="Bragg Peak HIP":
-                        #                 max_edep=0
-                        #                 for i in mu.particles:
-                        #                     for v in range(len(i.points)):
-                        #                         if np.linalg.norm(i.points[v]-non_passing_mu[0][0].end_point)<2.5:
-                        #                             max_edep=max(max_edep,i.depositions[v])
-                        #                 Bragg_peak_disc[truth_mip is not None][True]+=[max_edep]
-                        #             if mpf=="Come to Rest":
-                        #                 come_to_rest_dict[truth_mip is not None][True]+=[come_to_rest(pk[0])]
-                        #         else:
-                        #             raise Exception()
-                                
-                        #         if truth_mip==None:
-                        #             mip_truth=False
-                        #         else:
-                        #             mip_truth=(truth_mip.ancestor_pdg_code==321)*(truth_mip.parent_pdg_code==321)*(truth_mip.creation_process=="Decay")*(abs(truth_mip.pdg_code) in [211,13])
-                        #         # print(non_passing_mu[1])
-                        #         plen=np.sum([i.reco_length for i in non_passing_mu[0]])
-                        #         muon_len[mip_truth][non_passing_mu[1]=="Valid MIP Len"] += [plen]#TODO this has to be fixed scaling way too big 
-                        #     # print("adding",(ent.ancestor_pdg_code==321)*(ent.creation_process=="Decay")*(abs(ent.pdg_code) in [211,13]),rf"Primary $K^+$" not in mu.pass_failure,ent.reco_length)
-                        # # print(muon_len)
-
-                        # print(pot_mu[1])
-                        
-
-                        # 
-                    # HM_acc_mu[is_true][mpf==""] += [mu.mu_hm_acc]
-                    # print("kaon event",key)
-                    # if mu.true_signal:
-                    #     # print("found a true_signal mu")
-                    #     muon_len[2]+=[mu.mip_len_base]
-                    if is_true:
-                        mistake=False
-                        HS_count[0]+=[len(mu.kaon_path)-1]
-                        reco_HS=-1
-                        for rp in mu.particles:
-                            if not rp.is_matched: continue
-                            if not rp.shape in [TRACK_SHP]: continue
-                            
-                            if rp.match_ids[0] in mu.kaon_path and rp.match_overlaps[0]>.1 and len(rp.points)>10:
-                                reco_HS+=1
-                                if angle_between(rp.end_point-rp.start_point,mu.kaon_path[rp.match_ids[0]].end_point-mu.kaon_path[rp.match_ids[0]].start_point)>np.pi/2:# or (rp.pid not in [KAON_PID,PROT_PID] and rp!=mu.hip):
-                                    mistake=True
-                            if rp.match_ids[0] in mu.decay_mip_dict and rp.match_overlaps[0]>.1 and len(rp.points)>10:
-                                if angle_between(rp.end_point-rp.start_point,mu.decay_mip_dict[rp.match_ids[0]].end_point-mu.decay_mip_dict[rp.match_ids[0]].start_point)>np.pi/2 or rp.pid not in [MUON_PID,PION_PID]:
-                                    mistake=True
-                        HS_mistakes[mistake]+=[reco_HS]
-
-
-                        HS_count[1]+=[reco_HS]
-
-                        for mip_candidate in mu.particles:
-                            if not mip_candidate.is_matched: continue
-                            # truth_mip=mip_candidate
-                            mip_cutoff=10
-
+                        if mip_candidate.is_matched:
                             if mip_candidate.match_ids[0] in mu.decay_mip_dict:
-                                mip_truth:TruthParticle=mu.decay_mip_dict[mip_candidate.match_ids[0]]
-                                if len(mu.hm_pred)>mip_cutoff: HM_acc_MIP[0]+=[mu.hm_pred[mip_candidate.id][MIP_HM]/(mu.hm_pred[mip_candidate.id][HIP_HM]+mu.hm_pred[mip_candidate.id][MIP_HM])]
-                                if mip_candidate.reco_length>mip_cutoff: HM_acc_MIP[1]+=[int(mip_candidate.pid in [2,3])]
+                                truth_mip=mu.decay_mip_dict[mip_candidate.match_ids[0]]
 
-                                if mip_candidate.reco_length>mip_cutoff: MIP_primary[int(mip_candidate.is_primary)]+=[np.linalg.norm(mip_candidate.start_point-inter)]
-
-                                if mip_candidate.reco_length>mip_cutoff: 
-                                    MIP_dir+=[angle_between(mip_candidate.momentum,mip_truth.momentum)]
-                                    if angle_between(mip_candidate.momentum,mip_truth.momentum)>np.pi/2:
-                                        quick_save('/error_mip_direction/')
-                                if mip_truth.pdg_code==211:
-                                    for g_cand in [p for p in mu.particles if is_contained(p.start_point,margin=-5) and p.shape in [MICHL_SHP,SHOWR_SHP,LOWES_SHP] and len(p.points)>=3]:
-                                        adg=False
-                                        g_match=None
-                                        if g_cand.is_matched:
-                                            if g_cand.match_ids[0] in mu.truth_pi0_gamma:
-                                                adg=True
-                                                g_match=mu.truth_pi0_gamma[g_cand.match_ids[0]]
-                                        MIP_gamma_cost_disc[adg]+=[(cos_gamma_to_E(mip_candidate.start_point,g_cand.start_point,mip_candidate.momentum)-g_cand.reco_ke)/g_cand.reco_ke]#[np.clip(cos_gamma_to_pip(g_cand.reco_ke)-np.cos(angle_between(mip_candidate.momentum,g_cand.start_point-mip_candidate.start_point)),-2,2)]
-                                        if adg:
-                                            assert g_match is not None
-                                            assert g_match.pdg_code==22 and g_match.ancestor_pdg_code==321
-                                            # print("TESTING",cos_gamma_to_E(mip_candidate.start_point,g_cand.start_point,mip_candidate.momentum),g_cand.reco_ke)
-                                            # print("testing_truth",cos_gamma_to_E(mip_truth.start_point,g_match.start_point,mip_truth.momentum),g_match.reco_ke)
-                                        # if np.clip(cos_gamma_to_pip(g_cand.reco_ke)-np.cos(angle_between(mip_candidate.momentum,g_cand.start_point-mip_candidate.start_point)),-2,2)>1:
-                                            # quick_save('/error_cos_gamma')
-                                        MIP_gamma_impact_disc[adg]+=[impact_parameter(mip_candidate.start_point,g_cand.start_point,g_cand.momentum)]
-                                    
-                    
-                    if pc:
-                        selectedkaons+=1
-                        if not is_true:
-                            # assert os.path.exists(kfile)
-                            quick_save('/false_found/'+mu.reason)
-                            print("GOT A FALSE KAON",mu.hip.id,mu.hip.pdg_code,mu.reason,mu.truth_list)#,[(i.hip_id,i.truth,i.hip.pdg_code,i.proj_dist_from_hip<testcuts["par_child_dist max"][0],len([(p.dist_to_parent,p.angle_to_parent,p.proj_dist_to_parent) for p in i.k_extra_children if p.dist_to_parent<testcuts["par_child_dist max"][0] and (p.child_hm_pred in [SHOWR_HM,MICHL_HM] or p.child.reco_length>5)])==0, min(np.linalg.norm(i.hip.end_point-mu.mip.start_point),np.linalg.norm(i.hip.start_point-mu.mip.start_point))<testcuts["par_child_dist max"][0] and np.linalg.norm(i.hip.end_point-mu.mip.start_point)<np.linalg.norm(i.hip.start_point-mu.mip.start_point),i.truth_list) for i in mu.potential_kaons],key,kfile,[mu.reason,mpf])
-                    if not is_true:
-                        kaon_pass_failure[1][mpf]+=1
-                        kaon_reason_map[1][mu.reason]+=1
-
-                        plen=-1
-                        for k in mu.potential_kaons:
-                            for p in k[1]:
-                                plen=p[0].reco_length
-                        # assert plen>=0
-                        # if plen==-1:
-                        #     for non_passing_mu in pk[2]
-                        # for k in self.potential_kaons:#this loop looks for appropriate mips at one of the ends of the hadronic group
-                        # for p in copy.copy(k[1]):
-                        #     # assert type(p)==list[Particle],(type(p),type[p[0]])
-                        #     plen=np.sum([i.reco_length for i in p])
-                        # print("PLEN",plen)                      
-                        if plen>=40:
-                            kaon_pass_failure_mu[1][mpf]+=1
-                        elif plen<=40:
-                        # if (key,mu.truth_interaction_id) in K_to_pi_list:
-                            kaon_pass_failure_pi[1][mpf]+=1
-                        else:
-                            raise Exception(plen)
-                                
-                            #     if plen>0:
-                            #         break
-                            # if plen>0:
-                            #     break
-
-                        # if (key,mu.truth_interaction_id) in K_to_mu_list:
+                    valid_decay=is_true
+                    valid_mu_decay=False
+                    valid_pi_decay=False
+                    if truth_mip is None:
+                        valid_decay=0
+                    elif not pk[0].is_matched:
+                        valid_decay=0
+                    elif pk[0].match_ids[0] not in mu.kaon_path:
+                        valid_decay=0
+                    else:
+                        assert type(truth_mip)==TruthParticle
                         
+                        valid_decay*=int(truth_mip.parent_id==mu.kaon_path[pk[0].match_ids[0]].id or norm3d(truth_mip.start_point-mu.kaon_path[pk[0].match_ids[0]].end_point)<min_len/2)
+                        if valid_decay:
+                            assert abs(truth_mip.pdg_code)==211 or abs(truth_mip.pdg_code)==13
+                        valid_mu_decay=valid_decay*(abs(truth_mip.pdg_code)==13)
+                        valid_pi_decay=valid_decay*(abs(truth_mip.pdg_code)==211)
+                        
+                
+
+                    if pc and is_true and mip_candidate.reco_length>10:
+                        # dists = np.linalg.norm(mip_candidate.points - mip_candidate.end_point, axis=1)
+                        # mask = dists < 10
+                        # max_edep = np.median(mip_candidate.depositions[mask]*np.power(dists[mask],.42)) if np.any(mask) else 0
+                        max_edep,_=Bragg_Peak(mip_candidate)
+                        if valid_decay:
+                            assert truth_mip is not None
+                            Bragg_peak_mip[angle_between(mip_candidate.momentum,truth_mip.momentum)<np.pi/2][True]+=[max_edep] #TODO there is something up with the scaling when the cut parameter is changed 
+
+                        # dists = np.linalg.norm(mip_candidate.points - mip_candidate.start_point, axis=1)
+                        # mask = dists < 10
+                        # max_edep = np.median(mip_candidate.depositions[mask]*np.power(dists[mask],.42)) if np.any(mask) else 0
+                        pm_copy=copy.deepcopy(mip_candidate)
+                        pm_copy.start_point,pm_copy.end_point=pm_copy.end_point,pm_copy.start_point
+                        max_edep,_=Bragg_Peak(pm_copy)
+                        if valid_decay:
+                            assert truth_mip is not None
+                            Bragg_peak_mip[angle_between(mip_candidate.momentum,truth_mip.momentum)>np.pi/2][True]+=[max_edep] #TODO there is something up with the scaling when the cut parameter is changed 
 
                     
-                    
-                    if is_true:
+                    # order=np.argsort(dists)
+                    # deps=pk[0].depositions
+                    # mask = dists < 10
+                    # max_edep = np.median(pk[0].depositions[mask]*np.power(dists[mask],.42)) if np.any(mask) else 0
+                    # max_edep=
+
+                    # if len(mask)>=10:
+                        # dists = np.linalg.norm(pk[0].points - pk[0].end_point, axis=1)
+                        # slope, intercept = np.polyfit(dists ,pk[0].depositions, 1)
+                    # else:
+                        # slope=np.nan
+                    # sigma_edep=slope#np.std(pk[0].depositions[mask]*np.power(dists[mask],.42))/np.std(pk[0].depositions[mask]) if np.any(mask) else 0
+
+                        # max_edep = np.max(all_deps[mask]) if np.any(mask) else 0
+
+
+                    def add_to(my_dict:defaultdict[bool,defaultdict[bool,list[float]]],
+                                cut:str,
+                                value:float,
+                                t_or_f:bool=valid_decay)->None:
                         
-                        # print("current_type",current_type_map)
-                        kaon_pass_failure[0][mpf]+=1
-                        kaon_reason_map[0][mu.reason]+=1
-                        # TrueKaons+=1
-                        if pc:
-                            quick_save('/true_found')
-                            correctlyselectedkaons+=1
-                        else:
-                            true_reason=''
-                            for pk in mu.potential_kaons:
-                                for p in pk[1]:
-                                    if len(p[1])!=0:
-                                        true_reason=p[1]
-
-                            print("MISSED A GOOD KAON",key,kfile,mu.hip.pdg_code,mu.truth_list, true_reason)
-                            quick_save('/true_missed/'+mpf)
-
-
-                        if (key,mu.truth_interaction_id) in K_to_mu_list:
-                            kaon_pass_failure_mu[0][mpf]+=1
-                        if (key,mu.truth_interaction_id) in K_to_pi_list:
-                            kaon_pass_failure_pi[0][mpf]+=1
-
-                        
-                        # print(
-                        #     "true mu from kaon:",
-                        #     key,
-                        #     "    ",
-                        #     "mu hm:",mu.mu_hm_acc,
-                        #     "mu len:",mu.mip_len_base,
-                        # )
-                        # if mu.mip_len_base<50: print("TRUTH WARNING KAON TOO SHORT",key)
-                        # muon_len[1] += [mu.mip_len_base]
-                        # HM_acc_mu[1] += [mu.mu_hm_acc]
-                        # muon_len_adjusted[0]+=[mu.mip_len_base]
-                        # muon_len_adjusted[1]+=[mu.mip_len_base]
-                        # for mk in mu.potential_kaons:
-                        #     if mk.truth:
-                        #         muon_len_adjusted[1][-1]+=mk.dist_from_hip
-                        # for mm in mu.potential_michels:
-                        #     if mm.truth:
-                        #         muon_len_adjusted[1][-1] += mm.dist_to_mich
-                    # K_csda_over_calo[abs(mu.hip.pdg_code)==321][mpf==""] += [mu.hip.csda_ke/mu.hip.calo_ke]
-
-
-
-
-                    if (not is_true) and mpf=="":
-                        # print(mu.potential_kaons[0][1])
-
-                        # valid_mip=None\
-                        passing_mip=None
-                        plen=-1
-                        for k in mu.potential_kaons:
-                            for p in k[1]:
-                                
-                                if p[1]!=[]:
-                                    # raise Exception(p[1])
-                                    continue
-                                plen=p[0].reco_length
-                                if plen>0:
-                                    passing_mip=p[0]
-                                    break
-                            if plen>0:
-                                break
-                        
-                        
-                        # print(plen)
-                        if not mu.hip.is_matched:
-                            quick_save(f'/backgrounds/unmatched_hip_{plen>=40}')
-                        else:
-                            assert mu.truth_hip is not None
-                            assert passing_mip is not None
-
-                            # truth_mip=None
-                            # for pk in 
-
-                            
-                            # pk=mu.potential_kaons[0]
-                            # truth_mip=pk
-
-                            if not is_contained(mu.truth_interaction_vertex,margin=margin0):
-                                quick_save(f'/backgrounds/reco_vertex_out_of_bounds_{plen>=40}')
-
-                            elif mu.truth_hip.ke<csda_ke_lar(min_len,KAON_MASS):
-                                quick_save(f'/backgrounds/low_kaon_ke_{plen>=40}')
-
-                            elif len(passing_mip.match_ids)==0:
-                                quick_save(f'/backgrounds/what_even_is_that')
-
-                            elif passing_mip.match_ids[0] in mu.other_mip_dict and passing_mip.match_ids[0] not in mu.decay_mip_dict:
-                                quick_save(f'/backgrounds/secondary_kaon_production_good_luck_with_that')
-
-                            elif passing_mip.match_ids[0] in mu.decay_mip_dict and mu.truth_hip.pdg_code!=321:
-                                quick_save(f'/backgrounds/good_KDAR_bad_primary')
-
-                            # elif mip_truth is None:
-                            #     quick_save(f'/backgrounds/what_even_is_that')
-                            
-
-
-                            # elif len(mu.kaon_path)==0:
-                            #     quick_save(f'/backgrounds/secondary_kaon_without_primary_{truth_hip.pdg_code}_{plen>=40}')
-                            
-                            
-                            elif mu.truth_hip.ancestor_pdg_code==2212:
-                                quick_save(f'/backgrounds/prot_anc_{plen>=40}')
-                            elif mu.truth_hip.ancestor_pdg_code==-321:
-                                quick_save(f'/backgrounds/antikp_anc_{plen>=40}')
-                            elif mu.truth_hip.pdg_code==321 and not mu.truth_hip.is_primary and mu.truth_hip.ancestor_pdg_code==321:
-                                quick_save(f'/backgrounds/non_primary_kp_w_kp_ancestor_{plen>=40}')
-                            elif mu.truth_hip.pdg_code==211:
-                                quick_save(f'/backgrounds/overwritten_pi_{plen>=40}')
-                            elif mu.truth_hip.ancestor_pdg_code==311:
-                                quick_save(f'/backgrounds/k0_conv_{plen>=40}')
-                            elif mu.truth_hip.pdg_code==3222:
-                                quick_save(f'/backgrounds/sigmap_{plen>=40}')
-                            elif mu.truth_hip.pdg_code==3112:
-                                quick_save(f'/backgrounds/sigmam_{plen>=40}')
-                            
-
-                            elif mu.truth_interaction_nu_id==-1:
-                                quick_save(f'/backgrounds/cosmics_{plen>=40}')
-
-                            elif mu.truth_hip.pdg_code==2212 and mu.truth_hip.parent_pdg_code in [3222,3112]:
-                                quick_save(f'/backgrounds/proton_from_sigma_{mu.truth_hip.parent_pdg_code}_{plen>=40}')
-
-                            elif mu.truth_hip.pdg_code==321 and mu.truth_hip.ancestor_pdg_code!=321:
-                                quick_save(f'/backgrounds/non_primary_kp_non_kp_ancestor_{mu.truth_hip.ancestor_pdg_code}_{plen>=40}')
-
-
-                            # elif truth_hip.pdg_code==321 and truth_hip.is_primary and closest_reco_particle_to_truth_start(hip_candidate,particles,truth_particles)==hip_candidate
-                            elif mu.truth_hip.pdg_code!=321 and mu.truth_hip.is_primary:
-                                quick_save(f'/backgrounds/primary_non_kp_{mu.truth_hip.pdg_code}_{plen>=40}')
-
-                            
-
-                            elif mu.truth_hip.pdg_code!=321 and mu.truth_hip.ancestor_pdg_code!=321 and not mu.truth_hip.is_primary:
-                                quick_save(f'/backgrounds/non_primary_{mu.truth_hip.pdg_code}_w_parent_{mu.truth_hip.parent_pdg_code}_w_ancestor_{mu.truth_hip.ancestor_pdg_code}_{plen>=40}')
-
+                        if cut is not None:
+                            if args.mode=="reco":
+                                assert cut in kaon_pass_order_reco
+                            elif args.mode=="truth":
+                                assert cut in kaon_pass_order_truth
                             else:
-                                quick_save(f'/backgrounds/unknown_{mu.reason}_{plen>=40}')
-                            
-                    if is_true and mpf!="":
-                        assert mu.truth_hip is not None
-                        if not is_contained(mu.truth_hip.points,margin=3):
-                            quick_save('/missing/Kaon_Uncontained')
+                                raise Exception(args.mode)
+                        pc_almost=(passing_mu[1] in [[cut],[]])
+                        if t_or_f or pc_almost:
+                            my_dict[t_or_f][pc_almost].append(value)
+
+                    add_to(kaon_len,"Kaon Len",mu.hip.reco_length)
+                    add_to(primary_kp,"Close to Vertex",np.linalg.norm(mu.hip.start_point-mu.reco_vertex))
+
+                    if pk[0].reco_length>10: 
+                        add_to(Bragg_peak_disc,"Bragg Peak HIP",Bragg_Peak(pk[0])[0])
+
+                    if pk[0].reco_length>5:
+                        add_to(come_to_rest_dict,"Come to Rest",come_to_rest(pk[0]))
+                        add_to(come_to_rest_prot,"Come to Rest",come_to_rest(pk[0],PROT_MASS))
+                        add_to(come_to_rest_pi,"Come to Rest",come_to_rest(pk[0],PION_MASS))
+                        add_to(come_to_rest_simpler,"Come to Rest",np.clip(csda_ke_lar(pk[0].reco_length, KAON_MASS)-pk[0].calo_ke,-150,150))
+
+
+                    
+
+                    if (valid_decay or passing_mu[1] in [["dedx chi2"],[]]) and pk[0].reco_length>10 and np.sum([norm3d(f.start_point-pk[0].end_point)<min_len for f in mu.particles if f.id!=mip_candidate.id])==0:
+                        chi2[valid_decay][passing_mu[1] in [["dedx chi2"],[]]]+=[Bragg_Peak(pk[0])[1]]
+
+                    
+
+                    if (valid_decay or passing_mu[1] in [["Come to Rest"],[]]) and pk[0].reco_length>0:
+                        come_to_rest_len[valid_decay][passing_mu[1] in [["Come to Rest"],[]]]+=[(pk[0].reco_length,come_to_rest(pk[0],KAON_MASS))]
+                    if (valid_decay or passing_mu[1] in [["Bragg Peak HIP"],[]]) and pk[0].reco_length>10:
+                        Bragg_peak_len[valid_decay][passing_mu[1] in [["Bragg Peak HIP"],[]]]+=[(pk[0].reco_length,Bragg_Peak(pk[0])[0])]
+
+
+                    if valid_decay:
+                        assert truth_mip is not None
+                        MCS_dir[int(np.dot(truth_mip.end_point-truth_mip.start_point,mip_candidate.end_point-mip_candidate.start_point)>0)][int(MCS_direction_prediction(mip_candidate))]+=1
+
+                    if truth_mip is None:
+                        mip_truth0=False
+                    else:
+                        mip_truth0=int((truth_mip.ancestor_pdg_code==321)*(truth_mip.parent_pdg_code==321)*(truth_mip.creation_process=="Decay")*(abs(truth_mip.pdg_code) in [211,13])*valid_decay)
+                                
+                    mip_truth0=bool(mip_truth0)
+                            # for g in mu.truth_pi0_gamma:
+                            #     truth
+                        # MIP_gamma_cost_disc
+                    plen=mip_candidate.reco_length
+                    # if len(passing_mu)>1:
+                        # quick_save('/error_mip_break')
+                    # print(passing_mu[1])
+                    # if mip_candidate.reco_length>20 and passing_mu[1] in [["Valid MIP Len"],[]] and not mip_truth0:
+                        # print(mu.pass_failure,"HOW IS THIS HAPPENING",passing_mu[1])
+
+                    add_to(muon_len,"Valid MIP Len",plen,t_or_f=mip_truth0)
+
+                    # if pk[0].shape==TRACK_SHP and mip_candidate.shape==TRACK_SHP:
+                        # add_to(hip_mip_angle,"Min HIP-MIP Angle",angle_between(mip_candidate.end_point-mip_candidate.start_point,pk[0].end_point-pk[0].start_point),t_or_f=mip_truth0)
+
+                    in_there_gamma=passing_mu[3]
+                    mip_t:Optional[TruthParticle]=None
+                    mip_candidate=mip_candidate
+                    if mip_candidate.is_matched and mip_candidate.match_ids[0] in mu.decay_mip_dict:
+                        mip_t=mu.decay_mip_dict[mip_candidate.match_ids[0]]
+
+                    # for 
+
+                    for g_cand in GAMMA_CAND:
+                        adg=False
+                        g_match=None
+                        if g_cand.is_matched and mip_t is not None and mip_t.pdg_code==211:
+                            if g_cand.match_ids[0] in mu.truth_pi0_gamma:
+                                truthIP=impact_parameter(mip_t.position,
+                                                            mu.truth_pi0_gamma[g_cand.match_ids[0]].position,
+                                                            mu.truth_pi0_gamma[g_cand.match_ids[0]].momentum)
+                                if truthIP<10**(-4):
+                                    adg=True
+                                    # print(f"found a MIP gamma,{truthIP}")
+                                    g_match=mu.truth_pi0_gamma[g_cand.match_ids[0]]
 
                         
-                        else:
-                            quick_save('/missing/unknown_'+mpf)
+                                    # else:
+                                        # print("ALMOST",truthIP,norm3d(mip_truth.start_point-mip_candidate.start_point))
+                        adg*=mip_truth0
+                        adg*=is_true
+                        impact_relevant=False
+                        ke_relevant=False
+                        if (g_cand.id in [o[0].id for o in in_there_gamma]):
 
-                    # print(mu.hip.end_momentum)
-                    # for k in mu.potential_kaons:
-                    #     dir_acos_K[is_true and k.truth][mpf==""] += [k.dir_acos]
-                    #     kaon_len[is_true and k.truth][mpf==""] += [k.hip_len]
-                    #     HM_acc_K[is_true and k.truth][mpf==""] += [k.k_hm_acc]
-                    #     dist_to_hip[is_true and k.truth][mpf==""] += [k.dist_from_hip]
-                    #     K_csda_over_calo[is_true and k.truth][mpf==""] += [np.log(k.hip.csda_ke/k.hip.calo_ke)]
+                            index=[o[0].id for o in in_there_gamma].index(g_cand.id)
+                            impact_relevant=passing_mu[1] in [[r"$\pi^0$ Impact Parameter"],[]] and in_there_gamma[index][1] in [[r"$\pi^0$ Impact Parameter"],[]]
+                            ke_relevant=passing_mu[1] in [[r"$\pi^0$ Rel KE"],[]] and in_there_gamma[index][1] in [[r"$\pi^0$ Rel KE"],[]]
 
-                        # if k.truth:
-                        #     print(
-                        #         "with accompanying kaon:",
-                        #         key,
-                        #         "    ",
-                        #         # k.hip_id,
-                        #         "k diracos:",k.dir_acos,
-                        #         "k hm:",k.k_hm_acc,
-                        #         "k extra dist:",k.dist_from_hip,
-                        #         "k len:",k.hip_len,
-                        #         # k.k_extra_children,
-                        #     )
-                            # dir_acos_K[1] += [k.dir_acos]
-                            # kaon_len[1] += [k.hip_len]
-                            # HM_acc_K[1] += [k.k_hm_acc]
-                            # dist_to_hip[1] += [k.dist_from_hip]
 
-                            # for kc in k.k_extra_children:
-                            #     k_extra_children[0][0] += [kc.dist_to_parent]
-                            #     k_extra_children[0][1] += [kc.angle_to_parent]
-                            #     if kc.truth:
-                            #         k_extra_children[1][0] += [kc.dist_to_parent]
-                            #         k_extra_children[1][1] += [kc.angle_to_parent]
+                        if impact_relevant or ke_relevant or adg:
+                            # print("adding to the pi0 pile",adg,passing_mu[1],mu.pass_failure)
+                            mip_start=mip_candidate.start_point
 
-                    # for mich in mu.potential_michels:
+                            pi0_impact_disc[adg][impact_relevant]+=[impact_parameter(mip_start,g_cand.start_point,g_cand.momentum)]
+                            pi0_rel_KE_disc[adg][ke_relevant]+=[(cos_gamma_to_E(mip_start,g_cand.start_point,mip_candidate.momentum)-g_cand.reco_ke)/g_cand.reco_ke]
+                    if plen>10:
+                        Bragg_peak_MIP_disc[mip_truth0][passing_mu[1] in [["Bragg Peak MIP"],[]]]+=[Bragg_Peak(mip_candidate)[0]]
+                    CTR_MIP_disc[mip_truth0][passing_mu[1] in [["Come to Rest MIP"],[]]]+=[come_to_rest(mip_candidate,mass=PION_MASS)]
 
-                    #     HM_acc_mich[is_true and mich.truth][mpf==""]+=[mich.mich_hm_acc]
-                    #     dist_to_mich[is_true and mich.truth][mpf==""]+=[mich.dist_to_mich]
+                    HIP_MIP_disc[mip_truth0][passing_mu[1] in [["Connected Non-Primary MIP"],[]]]+=[norm3d(mip_candidate.start_point-pk[0].end_point)]
 
-                    #     # mu_extra_children[0][0]+=[mich.mu_extra_children[0]]
-                    #     # mu_extra_children[0][1]+=[mich.mu_extra_children[1]]
+                    if mip_truth0 or passing_mu[1] in [["Michel Child"],[]]:
+                        for m in mu.particles:
+                            if m.shape in [MICHL_SHP,DELTA_SHP,LOWES_SHP,SHOWR_SHP]:
+                                good_match=m.is_matched*mip_truth0
+                                if good_match:
+                                    good_match*=(m.match_ids[0] in mu.truth_michel)
+                                if good_match:
+                                    assert truth_mip is not None
+                                    good_match*=(mu.truth_michel[m.match_ids[0]].parent_id==truth_mip.id)
+                                    good_match*=(angle_between(truth_mip.momentum,mip_candidate.momentum)<np.pi/2)
+                                    good_match*=(norm3d(mip_candidate.end_point-truth_mip.end_point)<min_len)
+                                dist=min(norm3d(mip_candidate.end_point-m.start_point),norm3d(mip_candidate.end_point-m.end_point))
+                                if m.ke<100 and dist<20:
+                                    michel_ke_dist_disc[mip_truth0*good_match][passing_mu[1] in [["Michel Child"],[]]]+=[(dist,m.ke)]
 
-                    #     if mich.truth:
-                    #         print(
-                    #             "with accompanying michel:",
-                    #             key,
-                    #             "    ",
-                    #             # mich.mich_id,
-                    #             "mich extra dist:",mich.dist_to_mich,
-                    #             # mich.mu_extra_children,
-                    #             # decay_t_to_dist: float
-                    #             "mich hm:",mich.mich_hm_acc,
-                    #         )
+                    if (not mip_truth0) and passing_mu[1]==[] and mip_truth0:
+                        quick_save('/good_mip_bad_city/')
+                    # print(pk[2])
 
-                            # HM_acc_mich[1]+=[mich.mich_hm_acc]
-                            # dist_to_mich[1]+=[mich.dist_to_mich]
-                            # for mc in mich.mu_extra_children:
-                            #     mu_extra_children[0][0] += [mc.dist_to_parent]
-                            #     mu_extra_children[0][1] += [mc.angle_to_parent]
-                            #     if mc.truth:
-                            #         mu_extra_children[1][0] += [mc.dist_to_parent]
-                            #         mu_extra_children[1][1] += [mc.angle_to_parent]
-        #         # print("")
+
+                    mpf="" if not passing_mu[1] else passing_mu[1][0]
+                    kaon_pass_failure[not valid_decay][mpf]+=1
+                    
+                    plen=passing_mu[0].reco_length
+
+                    if plen>=40 and mpf=="":
+                        assert passing_mu[0].id not in mu.decay_mip_dict or abs(mu.decay_mip_dict[passing_mu[0].id].pdg_code)==13
+                    if plen<=40 and mpf=="":
+                        assert passing_mu[0].id not in mu.decay_mip_dict or abs(mu.decay_mip_dict[passing_mu[0].id].pdg_code)==211
+
+
+                    if plen>=40:
+                        kaon_pass_failure_mu[not valid_mu_decay][mpf]+=1
+                    if plen<=40:
+                        kaon_pass_failure_pi[not valid_pi_decay][mpf]+=1
+
+        
+
+
+
+                
+            if is_true:
+                
+                mistake=False
+                HS_count[0]+=[len(mu.kaon_path)-1]
+                reco_HS=-1
+                for rp in mu.particles:
+                    if not rp.is_matched: continue
+                    if not rp.shape in [TRACK_SHP]: continue
+                    
+                    if rp.match_ids[0] in mu.kaon_path and rp.match_overlaps[0]>.1 and len(rp.points)>10:
+                        reco_HS+=1
+                        if angle_between(rp.end_point-rp.start_point,mu.kaon_path[rp.match_ids[0]].end_point-mu.kaon_path[rp.match_ids[0]].start_point)>np.pi/2:# or (rp.pid not in [KAON_PID,PROT_PID] and rp!=mu.hip):
+                            mistake=True
+                    if rp.match_ids[0] in mu.decay_mip_dict and rp.match_overlaps[0]>.1 and len(rp.points)>10:
+                        if angle_between(rp.end_point-rp.start_point,mu.decay_mip_dict[rp.match_ids[0]].end_point-mu.decay_mip_dict[rp.match_ids[0]].start_point)>np.pi/2 or rp.pid not in [MUON_PID,PION_PID]:
+                            mistake=True
+                HS_mistakes[mistake]+=[reco_HS]
+
+
+                HS_count[1]+=[reco_HS]
+
+                for mip_candidate in mu.particles:
+                    if not mip_candidate.is_matched: continue
+                    
+                    # truth_mip=mip_candidate
+                    mip_cutoff=10
+
+                    if mip_candidate.match_ids[0] in mu.decay_mip_dict:
+
+                        mip_truth:TruthParticle=mu.decay_mip_dict[mip_candidate.match_ids[0]]
+
+                        if len(mu.hm_pred)>mip_cutoff: HM_acc_MIP[0]+=[mu.hm_pred[mip_candidate.id][MIP_HM]/(mu.hm_pred[mip_candidate.id][HIP_HM]+mu.hm_pred[mip_candidate.id][MIP_HM])]
+                        if mip_candidate.reco_length>mip_cutoff: HM_acc_MIP[1]+=[int(mip_candidate.pid in [2,3])]
+
+
+                        if mip_candidate.reco_length>mip_cutoff: MIP_primary[int(mip_candidate.is_primary)]+=[np.linalg.norm(mip_candidate.start_point-mu.reco_vertex)]
+
+                        if mip_candidate.reco_length>mip_cutoff: 
+                            MIP_dir+=[angle_between(mip_candidate.start_point-mip_candidate.end_point,mip_truth.start_point-mip_truth.end_point)]
+                            if MIP_dir[-1]>np.pi/2:
+                                quick_save('/error_mip_direction/')
+                        if mip_truth.pdg_code==211 and mip_truth.ancestor_pdg_code==321:
+                            for g_cand in GAMMA_CAND:
+                                adg=False
+                                g_match=None
+                                if g_cand.is_matched and mip_truth is not None:
+                                    if g_cand.match_ids[0] in mu.truth_pi0_gamma:
+                                        truthIP=impact_parameter(mip_truth.position,
+                                                                    mu.truth_pi0_gamma[g_cand.match_ids[0]].position,
+                                                                    mu.truth_pi0_gamma[g_cand.match_ids[0]].momentum)
+                                        if truthIP<10**(-4):
+                                            adg=True
+                                            print(f"found a MIP gamma,{truthIP}")
+                                            g_match=mu.truth_pi0_gamma[g_cand.match_ids[0]]
+                                        else:
+                                            print("ALMOST",truthIP,norm3d(mip_truth.position-mip_candidate.start_point))
+                                
+                                MIP_gamma_cost_disc[adg]+=[(cos_gamma_to_E(mip_candidate.start_point,g_cand.start_point,mip_candidate.momentum)-g_cand.reco_ke)/g_cand.reco_ke]#[np.clip(cos_gamma_to_pip(g_cand.reco_ke)-np.cos(angle_between(mip_candidate.momentum,g_cand.start_point-mip_candidate.start_point)),-2,2)]
+                                if adg:
+                                    assert g_match is not None
+                                    assert g_match.pdg_code==22 and g_match.ancestor_pdg_code==321
+                                    # print("TESTING",cos_gamma_to_E(mip_candidate.start_point,g_cand.start_point,mip_candidate.momentum),g_cand.reco_ke)
+                                    # print("testing_truth",cos_gamma_to_E(mip_truth.start_point,g_match.start_point,mip_truth.momentum),g_match.reco_ke)
+                                # if np.clip(cos_gamma_to_pip(g_cand.reco_ke)-np.cos(angle_between(mip_candidate.momentum,g_cand.start_point-mip_candidate.start_point)),-2,2)>1:
+                                    # quick_save('/error_cos_gamma')
+                                MIP_gamma_impact_disc[adg]+=[impact_parameter(mip_candidate.start_point,g_cand.start_point,g_cand.momentum)]
+                            
+            
+            if pc:
+                selectedkaons+=1
+                if not is_true:
+                    # assert os.path.exists(kfile)
+                    quick_save('/false_found/'+mu.reason)
+                    print("GOT A FALSE KAON",mu.hip.id,mu.hip.pdg_code,mu.reason,mu.truth_list)#,[(i.hip_id,i.truth,i.hip.pdg_code,i.proj_dist_from_hip<testcuts["par_child_dist max"][0],len([(p.dist_to_parent,p.angle_to_parent,p.proj_dist_to_parent) for p in i.k_extra_children if p.dist_to_parent<testcuts["par_child_dist max"][0] and (p.child_hm_pred in [SHOWR_HM,MICHL_HM] or p.child.reco_length>5)])==0, min(np.linalg.norm(i.hip.end_point-mu.mip.start_point),np.linalg.norm(i.hip.start_point-mu.mip.start_point))<testcuts["par_child_dist max"][0] and np.linalg.norm(i.hip.end_point-mu.mip.start_point)<np.linalg.norm(i.hip.start_point-mu.mip.start_point),i.truth_list) for i in mu.potential_kaons],key,kfile,[mu.reason,mpf])
+            # if not is_true:
+            #     kaon_pass_failure[1][mpf]+=1
+
+            #     plen=-1
+            #     for k in mu.potential_kaons:
+            #         for p in k[1]:
+            #             plen=p[0].reco_length
+            #     # assert plen>=0
+            #     # if plen==-1:
+            #     #     for non_passing_mu in pk[2]
+            #     # for k in self.potential_kaons:#this loop looks for appropriate mips at one of the ends of the hadronic group
+            #     # for p in copy.copy(k[1]):
+            #     #     # assert type(p)==list[Particle],(type(p),type[p[0]])
+            #     #     plen=np.sum([i.reco_length for i in p])
+            #     # print("PLEN",plen)                      
+            #     if plen>=40:
+            #         kaon_pass_failure_mu[1][mpf]+=1
+            #     elif plen<=40:
+            #     # if truth_kaon_key in K_to_pi_list:
+            #         kaon_pass_failure_pi[1][mpf]+=1
+            #     else:
+            #         raise Exception(plen)
+                
+
+            
+            
+            if is_true:
+                
+                # print("current_type",current_type_map)
+                # kaon_pass_failure[0][mpf]+=1
+                if pc:
+                    quick_save('/true_found')
+                    correctlyselectedkaons+=1
+                else:
+                    true_reason=''
+                    for pk in mu.potential_kaons:
+                        for p in pk[1]:
+                            if len(p[1])!=0:
+                                true_reason=p[1]
+                    if true_reason=='':
+                        true_reason=mu.pass_failure
+                    assert true_reason!=['']
+                    print("MISSED A GOOD KAON",key,os.path.basename(kfile),mu.hip.pdg_code,mu.truth_list, true_reason)
+                    quick_save('/true_missed/'+mpf)
+
+                    if true_reason==["Connected Non-Primary MIP"]:
+                        quick_save('conn_non_prim_mip_strange')
+
+
+                # if truth_kaon_key in K_to_mu_list:
+                #     kaon_pass_failure_mu[0][mpf]+=1
+                # if truth_kaon_key in K_to_pi_list:
+                #     kaon_pass_failure_pi[0][mpf]+=1
+
+                
+                # print(
+                #     "true mu from kaon:",
+                #     key,
+                #     "    ",
+                #     "mu hm:",mu.mu_hm_acc,
+                #     "mu len:",mu.mip_len_base,
+                # )
+                # if mu.mip_len_base<50: print("TRUTH WARNING KAON TOO SHORT",key)
+                # muon_len[1] += [mu.mip_len_base]
+                # HM_acc_mu[1] += [mu.mu_hm_acc]
+                # muon_len_adjusted[0]+=[mu.mip_len_base]
+                # muon_len_adjusted[1]+=[mu.mip_len_base]
+                # for mk in mu.potential_kaons:
+                #     if mk.truth:
+                #         muon_len_adjusted[1][-1]+=mk.dist_from_hip
+                # for mm in mu.potential_michels:
+                #     if mm.truth:
+                #         muon_len_adjusted[1][-1] += mm.dist_to_mich
+            # K_csda_over_calo[abs(mu.hip.pdg_code)==321][mpf==""] += [mu.hip.csda_ke/mu.hip.calo_ke]
+
+
+
+
+            if (not is_true) and mpf=="":
+                # print(mu.potential_kaons[0][1])
+
+                # valid_mip=None\
+                passing_mip=None
+                plen=-1
+                for k in mu.potential_kaons:
+                    for p in k[1]:
+                        
+                        if p[1]!=[]:
+                            # raise Exception(p[1])
+                            continue
+                        plen=p[0].reco_length
+                        if plen>0:
+                            passing_mip=p[0]
+                            break
+                    if plen>0:
+                        break
+                
+                
+                # print(plen)
+                if not mu.hip.is_matched:
+                    quick_save(f'/backgrounds/unmatched_hip_{plen>=40}')
+                else:
+                    assert passing_mip is not None
+                    assert mu.truth_hip is not None
+                    # truth_mip=None
+                    # for pk in 
+
+                    
+                    # pk=mu.potential_kaons[0]
+                    # truth_mip=pk
+
+                    if not is_contained(mu.truth_interaction_vertex,margin=margin0):
+                        quick_save(f'/backgrounds/reco_vertex_out_of_bounds_{plen>=40}')
+
+                    elif mu.truth_hip.ke<csda_ke_lar(min_len,KAON_MASS):
+                        quick_save(f'/backgrounds/low_kaon_ke_{plen>=40}')
+
+                    elif len(passing_mip.match_ids)==0:
+                        quick_save(f'/backgrounds/what_even_is_that')
+
+                    elif passing_mip.match_ids[0] in mu.other_mip_dict and passing_mip.match_ids[0] not in mu.decay_mip_dict:
+                        quick_save(f'/backgrounds/secondary_kaon_production_good_luck_with_that')
+
+                    elif passing_mip.match_ids[0] in mu.decay_mip_dict and mu.truth_hip.pdg_code!=321:
+                        quick_save(f'/backgrounds/good_KDAR_bad_primary')
+
+                    # elif mip_truth is None:
+                    #     quick_save(f'/backgrounds/what_even_is_that')
+                    
+
+
+                    # elif len(mu.kaon_path)==0:
+                    #     quick_save(f'/backgrounds/secondary_kaon_without_primary_{truth_hip.pdg_code}_{plen>=40}')
+                    
+                    
+                    elif mu.truth_hip.ancestor_pdg_code==2212:
+                        quick_save(f'/backgrounds/prot_anc_{plen>=40}')
+                    elif mu.truth_hip.ancestor_pdg_code==-321:
+                        quick_save(f'/backgrounds/antikp_anc_{plen>=40}')
+                    elif mu.truth_hip.pdg_code==321 and not mu.truth_hip.is_primary and mu.truth_hip.ancestor_pdg_code==321:
+                        quick_save(f'/backgrounds/non_primary_kp_w_kp_ancestor_{plen>=40}')
+                    elif mu.truth_hip.pdg_code==211:
+                        quick_save(f'/backgrounds/overwritten_pi_{plen>=40}')
+                    elif mu.truth_hip.ancestor_pdg_code==311:
+                        quick_save(f'/backgrounds/k0_conv_{plen>=40}')
+                    elif mu.truth_hip.pdg_code==3222:
+                        quick_save(f'/backgrounds/sigmap_{plen>=40}')
+                    elif mu.truth_hip.pdg_code==3112:
+                        quick_save(f'/backgrounds/sigmam_{plen>=40}')
+                    
+
+                    elif mu.nu_id==-1:
+                        quick_save(f'/backgrounds/cosmics_{plen>=40}')
+
+                    elif mu.truth_hip.pdg_code==2212 and mu.truth_hip.parent_pdg_code in [3222,3112]:
+                        quick_save(f'/backgrounds/proton_from_sigma_{mu.truth_hip.parent_pdg_code}_{plen>=40}')
+
+                    elif mu.truth_hip.pdg_code==321 and mu.truth_hip.ancestor_pdg_code!=321:
+                        quick_save(f'/backgrounds/non_primary_kp_non_kp_ancestor_{mu.truth_hip.ancestor_pdg_code}_{plen>=40}')
+
+
+                    # elif truth_hip.pdg_code==321 and truth_hip.is_primary and closest_reco_particle_to_truth_start(hip_candidate,particles,truth_particles)==hip_candidate
+                    elif mu.truth_hip.pdg_code!=321 and mu.truth_hip.is_primary:
+                        quick_save(f'/backgrounds/primary_non_kp_{mu.truth_hip.pdg_code}_{plen>=40}')
+
+                    
+
+                    elif mu.truth_hip.pdg_code!=321 and mu.truth_hip.ancestor_pdg_code!=321 and not mu.truth_hip.is_primary:
+                        quick_save(f'/backgrounds/non_primary_{mu.truth_hip.pdg_code}_w_parent_{mu.truth_hip.parent_pdg_code}_w_ancestor_{mu.truth_hip.ancestor_pdg_code}_{plen>=40}')
+
+                    else:
+                        quick_save(f'/backgrounds/unknown_{mu.reason}_{plen>=40}')
+                    
+            if is_true and mpf!="":
+                assert mu.truth_hip is not None
+                if not is_contained(mu.truth_hip.points,margin=3):
+                    quick_save('/missing/Kaon_Uncontained')
+
+                
+                else:
+                    quick_save('/missing/unknown_'+mpf)
 
 
 
     print("num neutrinos",num_nu_from_file)
     print("kaon eff/pur",np.divide(correctlyselectedkaons,TrueKaons) if TrueKaons else 0,np.divide(correctlyselectedkaons,selectedkaons) if selectedkaons else 0,[correctlyselectedkaons,selectedkaons,TrueKaons])
-    print("kaon reasons",kaon_reason_map)
     print("kaon pass_failure",kaon_pass_failure)
 
     if args.single_file!="":
@@ -1210,7 +1090,10 @@ def main():
 
 
 
-    for help in [(Bragg_peak_len,"PIDA","Bragg Peak Len"),(come_to_rest_len,"CSDA Len/CALO Len -1","come_to_rest_len")]:
+    for help in [
+        (Bragg_peak_len,"PIDA","Bragg Peak Len"),
+        (come_to_rest_len,"CSDA Len/CALO Len -1","come_to_rest_len"),
+        (michel_ke_dist_disc,"Michel KE [MeV]","Michel_dist_ke")]:
 
         xs, ys, labels = [], [], []
 
@@ -1247,7 +1130,7 @@ def main():
             plt.xlim(max(.1,x_min - pad_x), x_max + pad_x)
             plt.ylim(y_min - pad_y, y_max + pad_y)
 
-        plt.xlabel("Reco length")
+        plt.xlabel("Reco length [cm]")
         plt.ylabel(help[1])
         plt.legend(fontsize=8, markerscale=0.7)
         # plt.xscale("log")
@@ -1284,16 +1167,16 @@ def main():
     plt.tight_layout();plt.savefig(PLOTSDIR+"hip_dir_angle_before")
 
 
-    (n, bins, patches)=plt.hist(K_mom+pi_mom+mu_mom, bins=50)
-    plt.clf()
-    plt.hist(K_mom,label=r"$K^+$ in $K^+$ decays",bins=bins.tolist(),alpha=0.3)
-    plt.hist(pi_mom,label=r"$\pi^+$ in $K^+$ decays",bins=bins.tolist(),alpha=0.3)
-    plt.hist(mu_mom,label=r"$\mu$ in $K^+$ decays",bins=bins.tolist(),alpha=0.3)
-    plt.xlabel("Momentum [MeV]")
-    plt.ylabel("Freq")
-    plt.legend(frameon=True, fontsize=11)
-    plt.grid(True, linestyle="--", alpha=0.5)   
-    plt.tight_layout();plt.savefig(PLOTSDIR+"truth_momenta")
+    # (n, bins, patches)=plt.hist(K_mom+pi_mom+mu_mom, bins=50)
+    # plt.clf()
+    # plt.hist(K_mom,label=r"$K^+$ in $K^+$ decays",bins=bins.tolist(),alpha=0.3)
+    # plt.hist(pi_mom,label=r"$\pi^+$ in $K^+$ decays",bins=bins.tolist(),alpha=0.3)
+    # plt.hist(mu_mom,label=r"$\mu$ in $K^+$ decays",bins=bins.tolist(),alpha=0.3)
+    # plt.xlabel("Momentum [MeV]")
+    # plt.ylabel("Freq")
+    # plt.legend(frameon=True, fontsize=11)
+    # plt.grid(True, linestyle="--", alpha=0.5)   
+    # plt.tight_layout();plt.savefig(PLOTSDIR+"truth_momenta")
 
 
     plt.clf()
@@ -1302,7 +1185,6 @@ def main():
     plt.hist(HS_count[1],bins=bins.tolist(),label="Reco",alpha=.5)
     # 
 
-    # plt.hist(data, bins=bins, edgecolor='black', align='mid')
     plt.xticks(np.arange(0,len(set(HS_count[0]+HS_count[1])) + 1))  # force integer ticks
     plt.xlabel("# Hard Scatters Before Decay")
     plt.ylabel("Freq")
@@ -1314,11 +1196,10 @@ def main():
 
 
     bins = np.arange(0 - 0.5, len(set(HS_mistakes[0]+HS_mistakes[1])) + 1.5, 1)
-    plt.hist(HS_mistakes[0],bins=bins.tolist(),label="PID/Dir. Mistake Free",alpha=.5)
-    plt.hist(HS_mistakes[1],bins=bins.tolist(),label="PID/Dir. Mistake",alpha=.5)
+    plt.hist(HS_mistakes[0],bins=bins.tolist(),label=f"PID/Dir. Mistake Free: {len(HS_mistakes[0])}",alpha=.5)
+    plt.hist(HS_mistakes[1],bins=bins.tolist(),label=f"PID/Dir. Mistake: {len(HS_mistakes[1])}",alpha=.5)
     # 
 
-    # plt.hist(data, bins=bins, edgecolor='black', align='mid')
     plt.xticks(np.arange(0,len(set(HS_mistakes[0]+HS_mistakes[1])) + 1))  # force integer ticks
     plt.xlabel("# Hard Scatters Before Decay")
     plt.ylabel("Freq")
@@ -1350,61 +1231,66 @@ def main():
         # [lam_momentum,"Lambda Momentum [MeV/c]","lam_mom"],
         # [lam_true_momentum,"Geant4 Lambda Momentum [MeV/c]","lam_mom_g4"],
         [muon_len,"MIP len [cm]","Valid MIP Len"],
-        (Bragg_peak_disc,"Mean Edep*Sqrt[R] within 10 cm [MeV*Sqrt[cm]]","Bragg Peak HIP"),
+        [HIP_MIP_disc,"HIP-MIP dist [cm]","Connected Non-Primary MIP"],
+        (Bragg_peak_disc,"PIDA [MeV*[cm]^0.42]","Bragg Peak HIP"),
+        (Bragg_peak_MIP_disc,"PIDA [MeV*[cm]^0.42]","Bragg Peak MIP"),
+        (CTR_MIP_disc,"Calo KE/CSDA KE -1","Come to Rest MIP"),
         # (Bragg_peak_sigma_disc,"dE/dx slope [MeV/cm^2]","Bragg Peak Sigma"),
-        (Bragg_peak_mip,"PIDA [MeV*[cm]^0.42]","Bragg Peak MIP"),
+        # (Bragg_peak_mip,"PIDA [MeV*[cm]^0.42]","Bragg Peak MIP"),
         
         (come_to_rest_dict,"Calo KE/CSDA KE -1","Come to Rest"),
 
         (come_to_rest_simpler,"CSDA KE-CALO KE","Come to Rest Simpler"),
+        # (hip_mip_angle,"Angle between HIP and MIP","Min HIP-MIP Angle"),
         (come_to_rest_prot,"Calo KE/CSDA KE -1","Come to Rest prot"),
         (come_to_rest_pi,"Calo KE/CSDA KE -1","Come to Rest pi"),
         (chi2,"Chi2","chi2"),
-        (closest_FM,"Closest Flashmatched Interaction [cm]","closest_FM")
+        # (closest_FM,"Closest Flashmatched Interaction [cm]","closest_FM"),
+        (pi0_impact_disc,r"$\gamma$ Impact Parameter",r"$\pi^0$ Impact Parameter"),
+        (pi0_rel_KE_disc,r"$(\Delta KE)/KE_{True}$",r"$\pi^0$ Rel KE")
 
         # [lam_tau0_est,r"$\tau_0=\frac{dx_{decay}m_{est}}{p_{est}}~[ns]$","t0_est"]
         # [dir_acos_K,"Kaon Acos momentum to beam","K_Acos"]
         
         ]:
-            # for actual in [True,False]:
-                
-                # plt.hist(base_len_vae,bins=30)
-    # plt.xlabel("VAE base length [cm]")
-    # plt.ylabel("Freq")
-    # plt.yscale("log")
-    # plt.tight_layout();plt.savefig("plots/" + str(FOLDER) + "/lambda/"+"base_len_vae")
-    # plt.clf()
-                # print(help[1])
-                # maxval=help[0][actual][True]
-            # mine=np.array(help[0][True][True]+)
-            # if args.mode!="truth": continue
             mine=np.array(help[0][True][True]+help[0][True][False]+help[0][False][True]+help[0][False][False])
 
             mine=mine[mine<2000]
             # (n, bins, patches)=plt.hist(mine, bins=100)
             # if help[2]!="closest_FM":
-            if help[2] in ["Come to Rest","Come to Rest prot","Come to Rest pi"]:
+            if help[2] in ["Come to Rest","Come to Rest prot","Come to Rest pi", "Come to Rest MIP"]:
                 mine=mine[mine<1]
                 # (n, bins, patches)=plt.hist(mine, bins=50)
-            elif help[2] in ["Kaon Len","Close to Vertex"]:
+            elif help[2] in ["Kaon Len","Close to Vertex","Connected Non-Primary MIP"]:
                 mine=mine[mine<20]
             elif help[2] in ["Valid MIP Len"]:
                 mine=mine[mine<70]
-                # (n, bins, patches)=plt.hist(mine, bins=50)
-            # elif 
+            elif help[2]==r"$\pi^0$ Impact Parameter":
+                mine=mine[mine<40]
+            if help[2]==r"$\pi^0$ Rel KE":
+                # dset=
+                mine=mine[mine<5]
 
-            (n, bins, patches)=plt.hist(mine, bins=50)
-            # else:
-            #     (n, bins, patches)=plt.hist(mine[mine<2000], bins=100)
-            plt.clf()
+            if len(mine)==0: print(help[2],"is empty")
+
+            finite_bins = np.linspace(np.min(mine), np.max(mine), 50)
+            bin_width = finite_bins[1] - finite_bins[0]
+
+            # Append an overflow bin
+            bins = np.append(finite_bins, finite_bins[-1] + bin_width)
+            x_max = finite_bins[-1]
+            tick_bins = np.linspace(finite_bins[0], finite_bins[-1], 11)
+            tick_labels = [f"{b:.1f}" for b in tick_bins[:-1]] + [f"{x_max:.1f}+"]  
+
+
+            plt.xticks(tick_bins, tick_labels)
+            
+
             
             for actual in [False,True]:
                 # print(help[0][actual][True])
-                if help[2] not in ["closest_FM"]:
-                    plt.hist(help[0][actual][True], bins=list(bins), label=f"{actual} after other cuts",alpha=.7)
-                else:
-                    plt.hist(help[0][actual][True], bins=list(bins), label=rf"{actual} $K^+$ Decay Interactions",alpha=.7)
-                # count+=1
+                # if help[2] not in ["closest_FM"]:
+                plt.hist(np.clip(help[0][actual][True],bins[0],bins[-1]), bins=list(bins), label=f"{actual} after other cuts",alpha=.7)
             if help[2]=="Valid MIP Len":
                 n=kaon_pass_order["Valid MIP Len"]
                 x1 = n % 100
@@ -1416,13 +1302,15 @@ def main():
                 pi_len=[x1,x2]
                 plt.axvspan(pi_len[0], pi_len[1], color='blue', alpha=0.2, label=r"$K^+\rightarrow \pi^+\pi^0$ band")
             # count=2
-            if help[2] in ["Kaon Len","Come to Rest","Close to Vertex","closest_FM","Bragg Peak HIP","Forward HIP"] and help[2] in kaon_pass_order:
+            if help[2] in ["Min HIP-MIP Angle","Kaon Len","Come to Rest","Close to Vertex","Bragg Peak HIP","Bragg Peak MIP","Forward HIP","Connected Non-Primary MIP",r"$\pi^0$ Rel KE",r"$\pi^0$ Impact Parameter"] and help[2] in kaon_pass_order and kaon_pass_order[help[2]] is not None:
                 # klen=kaon_pass_order[help[2]]
                 plt.axvline(kaon_pass_order[help[2]], color='red', linestyle='--', linewidth=2, label=f"cut value={kaon_pass_order[help[2]]}",alpha=0.5)
+            if help[2] in [r"$\pi^0$ Rel KE"]:
+                plt.axvline(kaon_pass_order[help[2]], color='green', linestyle='--', linewidth=2, label=f"cut value=4",alpha=0.5)
             # if help[2] in ["Bragg Peak HIP"]:
             #     # mycut=kaon_pass_order["Bragg Peak HIP"]
             #     plt.axvline(kaon_pass_order[help[2]], color='red', alpha=0.5, label=f"cut value={kaon_pass_order[help[2]]}")
-            if help[2] in ["closest_FM","Close to Vertex"]:
+            if help[2] in ["Close to Vertex","Kaon Len"]:
                 plt.yscale("log")
                 # plt.axvline(kaon_pass_order["Valid Interaction"], color='red', alpha=0.5, label="Max Vertex-Vertex Distance to Flashmatched Interaction")
             # if help[2] in ["Close to Vertex"]:
@@ -1440,41 +1328,13 @@ def main():
 
 
             for actual in [True]:
-                # plt.hist(help[0][actual][True]+help[0][actual][False], bins=bins,label=f"all {actual}",facecolor='none',edgecolor=plt.rcParams['axes.prop_cycle'].by_key()['color'][3],alpha=.5)
 
-                counts, bin_edges = np.histogram(help[0][actual][True]+help[0][actual][False], bins=bins)
-
-                # Plot histogram bars with transparent fill and visible edges
-                # plt.hist(help[0][actual][True]+help[0][actual][False], bins=bins,
-                #         facecolor='red',
-                #         edgecolor='none',  # we'll draw our own outline
-                #         alpha=0.5)
-
-                # Overlay a border using step plot
-                # We duplicate the counts to match bin_edges length for 'post' alignment
+                counts, bin_edges = np.histogram(np.clip(help[0][actual][True]+help[0][actual][False],bins[0],bins[-1]), bins=bins)
                 step_edges = np.repeat(bin_edges, 2)[1:-1]
                 step_heights = np.repeat(counts, 2)
                 plt.plot(step_edges, step_heights,
                         color=plt.rcParams['axes.prop_cycle'].by_key()['color'][3],
                         label=f"all {actual}",alpha=.5)
-                # count+=1
-                # alpha=1
-                # if actual==False:
-                #     alpha=.5
-            # count=2
-                # for m in testcuts["mu_len"]:
-                #     plt.axvline(x=m, color='red', linestyle='--', linewidth=2, label=f"cut value={m}")
-                # for m in testcuts["pi_len"]:
-                #     plt.axvline(x=m, color='blue', linestyle='--', linewidth=2, label=f"cut value={m}")
-                # plt.axvline(x = 54, color = 'r', label = 'ideal KDAR muon')
-                # if help[2]=="lam_decay_len":
-                # plt.xlim(right=np.max(help[0][actual][True]))
-
-                # if help[2]=="t0_est":
-                #     plt.axvline(x = np.log(0.2631), color = 'r', label = r'$\tau_{0\Lambda}~[ns]$')
-                #     # plt.xlim(right=np.max(help[0][actual][True]))
-                # if len(help[0][actual][True])>0:
-                #     plt.xlim(right=np.max(help[0][actual][True]))
 
             plt.xlabel(help[1])
             plt.ylabel("Freq")
@@ -1483,61 +1343,6 @@ def main():
             plt.grid(True, linestyle="--", alpha=0.5)
             plt.tight_layout();plt.savefig(PLOTSDIR+help[2])
             plt.clf()
-
-    if False:
-        (n, bins, patches) = plt.hist(muon_len[0], bins=list(np.linspace(40,60,40)), label="all")
-        plt.hist(muon_len[1], bins=list(bins), label=r"all $K^+-\mu$")
-        # plt.hist(muon_len[2], bins=list(bins), label="signal events",alpha=.5)
-        plt.axvline(x=54, color="r", label="ideal KDAR muon")
-        plt.xlabel("Muon Len [cm]")
-        plt.ylabel("Freq")
-        plt.legend()
-        plt.tight_layout();plt.savefig(PLOTSDIR+"Muon_Len")
-        plt.clf()
-
-
-    # mla30_0=[i for i in muon_len_adjusted[0] if i>40 and i<60]
-    # mla30_1=[i for i in muon_len_adjusted[1] if i>40 and i<60]
-    # print( muon_len_adjusted,"MLA")
-    # (n, bins, patches) = plt.hist(
-    #     mla30_0,
-    #     bins=25,
-    #     label=r"True $K^+-\mu^+$ (only $\mu^+$): $\mu (40cm-60cm)$= "
-    #     + str(round_to_2(np.mean(mla30_0)))
-    #     + r", $\sigma (40cm to 60cm)$= "
-    #     + str(round_to_2(np.std(mla30_0))),
-    # )
-    # plt.hist(
-    #     mla30_1,
-    #     bins=list(bins),
-    #     label=r"True $K^+-\mu^+$ (adjusted): $\mu (40cm-60cm)$= "
-    #     + str(round_to_2(np.mean(mla30_1)))
-    #     + r", $\sigma (40cm to 60cm)$= "
-    #     + str(round_to_2(np.std(mla30_1))),
-    #     alpha=.5
-    # )
-
-    # for x in [
-    #     [k_extra_children,r"signal $K^+$ extra children","kaonkids"],
-    #     [mu_extra_children,r"signal $\mu$ extra children","mukids"],
-    #     [pi_extra_children,r"signal $\Lambda-\pi^+$ extra children","pikids"],
-    #     [prot_extra_children,r"signal $\Lambda-p$ extra children","protkids"],
-    #     [lam_extra_children,r"signal $\Lambda$ extra children","lamkids"]
-    #     ]:
-
-
-    #     plt.scatter(x[0][0][0],x[0][0][1], label="Before parameter cuts")
-
-    #     plt.scatter(x[0][1][0],x[0][1][1], label=x[1])
-    #     plt.xlabel("parent-child end-to-start distance [cm]")
-    #     plt.ylabel("child start dir to end-to-start angle")
-    #     # plt.xscale("log")
-    #     # plt.yscale("log")
-    #     plt.legend()
-    #     plt.tight_layout();plt.savefig("plots/" + str(FOLDER) + "/"+x[2])
-    #     plt.clf()
-
-    
 
 
     for s in [(-np.array(vertex_dz),r"Vertex Reco-Truth $\Delta$z [cm]","vertex_dz"),
@@ -1613,10 +1418,10 @@ def main():
 
 
         for s in [
-            [MIP_gamma_cost_disc, r"$\gamma~\Delta Cos \theta$", "MIP_gamma_cos"],
+            [MIP_gamma_cost_disc, r"$(\Delta KE)/KE_{True}$", "MIP_gamma_cos"],
             [MIP_gamma_impact_disc,r"$\gamma$ Impact Parameter", "MIP_gamma_impact"],
             [K_clustering,r"Interaction Overlap","Cluster_overlap"],
-            [tracking_threshold,r"Kaon Len [cm]","tracking_threshold"],
+            # [tracking_threshold,r"Kaon Len [cm]","tracking_threshold"],
             (K_primary,r"Dist to Vertex [cm]","K_primary"),
             (MIP_primary,r"Dist to Vertex [cm]","MIP_primary"),
             
@@ -1639,16 +1444,16 @@ def main():
             # print(s[0],np.isnan(s[0]))
             # for h in [False,True]
             # rmnans=[z for z in s[0] if not np.isnan(z)]
-            bins=20
+            bins=50
             (n, bins, patches) = plt.hist(s[0][0]+s[0][1], bins=bins)
             plt.clf()
             if s[2]=="MIP_gamma_impact":
                 bins=np.linspace(0,20,20)
-                plt.axvspan(0, kaon_pass_order[r"Low MIP len $\pi^0$ Tag"], color='red', alpha=0.2, label=r"Acceptance band")
+                plt.axvspan(0, kaon_pass_order[r"$\pi^0$ Impact Parameter"], color='red', alpha=0.2, label=r"Acceptance band")
             if s[2]=="MIP_gamma_cos":
                 # dset=
-                bins=np.linspace(-3,3,30)
-                # plt.axvspan(0, kaon_pass_order[r"Low MIP len $\pi^0$ Tag"][2], color='red', alpha=0.2, label=r"Acceptance band")
+                bins=np.linspace(-1,2,50)
+                # plt.axvspan(0, kaon_pass_order[r"$\pi^0$ Tag"][2], color='red', alpha=0.2, label=r"Acceptance band")
             
             for b in [False,True]:
                 if s[2]=="tracking_threshold":
@@ -1743,7 +1548,7 @@ def main():
             sel_kaon[c]=sel_kaon[c+1]+kpf[0][0][cols[c]]+kpf[0][1][cols[c]]
 
         scaling=80000/num_nu_from_file
-
+        
         for r in range(len(rows)):
             for c in range(len(columns)):
                 if rows[r]==r"Signal $K^+$":data[r][c]=int(kpf[1]*scaling)
@@ -1819,7 +1624,14 @@ def main():
 
         plt.figure(dpi=300, figsize=(12, 6))
 
-        columns=[""]+columns[:-1]
+        signal_row_name = r"Signal $K^+$"
+        signal_row_idx = rows.index(signal_row_name)
+
+        # Remove column from data and columns
+        data = np.delete(data, signal_row_idx,axis=0)
+        rows = [r for i, r in enumerate(rows) if i != signal_row_idx]
+
+        columns=["Preliminary Cuts"]+columns[:-1]
 
 
         # Flip data for vertical layout
@@ -1837,15 +1649,7 @@ def main():
             cell_text.append(formatted_row)
 
         # Define colors
-        assert len(columns_flipped) == 6
-        row_colors = np.array([
-            [0.0, 0.0, 0.0, 0.0],
-            [0.0, 0.0, 0.0, 0.0],
-            [0.0, 0.0, 0.0, 0.0],
-            [1.0, 0.0, 0.0, 1.0],  # Red
-            [0.0, 1.0, 0.0, 1.0],  # Green
-            [0.0, 0.0, 1.0, 1.0]   # Blue
-        ])
+        assert len(columns_flipped) == 5
 
         # Add table
 
@@ -1856,6 +1660,23 @@ def main():
         cellLoc='center',
         loc='center'
     )
+        
+        header_cell = table.get_celld()[(0, 0)]
+        w = header_cell.get_width()
+        h = header_cell.get_height()
+
+        # Explicitly add the top-left corner cell
+        corner_cell = table.add_cell(
+            row=0,
+            col=-1,
+            width=w,
+            height=h,
+            text=rf"Signal $K^+$ = {int(kpf[1]*scaling)}",
+            loc='center'
+        )
+
+        corner_cell.set_text_props(weight='bold')
+        corner_cell.set_facecolor('#e6e6e6')
 
         # Set font size and force fit
         table.auto_set_font_size(False)

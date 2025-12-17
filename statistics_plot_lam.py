@@ -1,10 +1,39 @@
 
 from statistics_plot_base import *
-
 import os
 
-from analysis.analysis_cuts import *
+from print_particle_record import load_cfg
 
+
+MIN_LAM_MOM=500
+MAX_LAM_MOM=2000
+MIN_PROT_MOM=315
+MIN_PI_MOM=80
+
+
+def two_body_momentum(M, m1, m2):
+    return 0.5 / M * np.sqrt((M**2 - (m1 + m2)**2) *
+                             (M**2 - (m1 - m2)**2))
+
+LAM_PT_MAX=two_body_momentum(LAM_MASS,PION_MASS,PROT_MASS)
+
+
+from pathlib import Path
+
+def find_root_path(npy_filename, file_list_path="/sdf/data/neutrino/zhulcher/grappa_inter_very_large_250/full_file_list_clean.txt"):#"/sdf/data/neutrino/zhulcher/grappa_inter_update_250/file_list.txt"):
+    # Extract basename without extension
+    stem = Path(npy_filename).stem  # e.g. prodcorsika_genie_protononly_icarus_...
+
+    # Construct the .root filename
+    root_name = stem + ".root"
+
+    # Search for it in the text file
+    with open(file_list_path) as f:
+        for line in f:
+            if root_name in line:
+                return line.strip()
+
+    return None  # Not found
 
 lam_pass_order_truth={
             # "lam child contained start distance max",
@@ -50,28 +79,33 @@ lam_pass_order_reco={
             # "lam child contained start distance max",
             # "lam_proj_dist max",
             # "Non-Primary HIP or MIP",
-            "Valid Interaction":400,
+            "Valid Interaction":True,
             "MIP Child": True,
             "HIP Child": True,
-            "Valid Len":2*min_len,
+
+            "MIP Length":min_len,
+            "HIP Length":min_len,
+            # "Valid Len":2*min_len,
             "HIP-MIP Order":True,
             "No HIP or MIP Michel":2.5,
+
+            
+
+            "Closer to Decay Point":True,
+
+            "Not Back-to-Back":np.pi*(1-1/12),
 
             "Starts Closest":True,
             
 
-            "Proj Max HIP-MIP Sep.":2.5,#cm
+            "Proj Max HIP-MIP Sep.":0.45,#cm
             
-            "Max HIP-MIP Sep.":5,#cm
-
-
+            "Max HIP-MIP Sep.":2.5,#cm
             
             
+            "Min Decay Len": 3.75, #cm,
             
-            
-            "Min Decay Len": 4, #cm,
-            
-            "Impact Parameter":2,#cm
+            "Impact Parameter":1.2,#cm
             
             # "vertex not found",
             # "prot or pi containment",
@@ -93,11 +127,16 @@ lam_pass_order_reco={
             # "Primary Colinear Parent",
 
             "Parent Proximity":True,
+            "No HIP Deltas": True,
             "# Children":True,
+            "PID check":True,
+            "Min Proj Decay Len":min_len,
 
             # "Primary HIP-MIP":True, #TODO this is actually opposite in truth
             
-            
+            "No Extended Michels":True,
+
+            "Particle Though-Going":True,
             
             "":True
 }
@@ -108,9 +147,48 @@ fakecuts={
     "tau_max":2.6,
 }
 
+def decay_angle_from_invariant_mass(p1, p2, m1, m2, M, tol=1e-8):
+    """
+    Return the angle (radians) between two daughter momenta given:
+      - p1, p2 : magnitudes of daughter 3-momenta (floats, >0)
+      - m1, m2 : daughter masses (same units as momenta)
+      - M      : parent invariant mass (same units)
+
+    Raises ValueError for invalid inputs or inconsistent kinematics.
+    """
+    if p1 <= 0 or p2 <= 0:
+        raise ValueError("p1 and p2 must be positive magnitudes.")
+    # energies
+    E1 = np.sqrt(p1*p1 + m1*m1)
+    E2 = np.sqrt(p2*p2 + m2*m2)
+
+    numerator = (E1 + E2)**2 - M*M - p1*p1 - p2*p2
+    denom = 2.0 * p1 * p2
+
+    cos_theta = numerator / denom
+
+    # Numerical safety: clamp to [-1,1] if within tolerance
+    if cos_theta > 1.0 + tol or cos_theta < -1.0 - tol:
+        raise ValueError(f"Inconsistent kinematics: computed cosθ = {cos_theta:.6f} outside [-1,1].")
+    cos_theta = max(-1.0, min(1.0, cos_theta))
+
+    theta = np.acos(cos_theta)
+
+    # Optional: compute parent 3-momentum magnitude and consistency check
+    p_parent = np.sqrt(max(0.0, p1*p1 + p2*p2 + 2.0*p1*p2*cos_theta))
+    # check invariant relation (small numerical rounding allowed)
+    lhs = M*M
+    rhs = (E1 + E2)**2 - p_parent*p_parent
+    if abs(lhs - rhs) > 1e-6 * max(1.0, abs(lhs), abs(rhs)):
+        # warning-level: not raising; caller can inspect p_parent and the diff
+        # you could raise here if you want strict consistency
+        pass
+
+    return theta, cos_theta, p_parent
 
 
-from concurrent.futures import ProcessPoolExecutor
+
+# from concurrent.futures import ProcessPoolExecutor
 
 print("cpu count",os.cpu_count())
 
@@ -127,12 +205,13 @@ def load_single_file(args:tuple)->tuple[str,list[Pred_Neut],list]:
 
     return file0, predl, particles
 
+# @profile
 def main():
 
     import argparse
 
     parser = argparse.ArgumentParser(description='Script to plot Lam stats')
-    parser.add_argument('--mode', type=str, choices=["truth", "reco"], help='Reco or Truth running mode')
+    parser.add_argument('--mode', type=str, choices=["truth", "reco"], help='Reco or Truth running mode',default="reco")
     parser.add_argument('--N', type=int, default=sys.maxsize, help='Number of files to run')
     parser.add_argument('--single_file',type=str, default="",help="if set, just run this file, and don't plot")
 
@@ -182,7 +261,7 @@ def main():
     lam_decay_len_disc_total = defaultdict(lambda: defaultdict(list))
 
 
-    lam_dir_acos = defaultdict(lambda: defaultdict(list))
+    # lam_dir_acos = defaultdict(lambda: defaultdict(list))
 
     HM_acc_prot =[]
     HM_acc_pi = []
@@ -198,15 +277,20 @@ def main():
     
 
 
-    ProtPi_dist = defaultdict(lambda: defaultdict(list))
+    # ProtPi_dist = defaultdict(lambda: defaultdict(list))
     ProtPi_dist_disc_total = defaultdict(lambda: defaultdict(list))
 
-    mip_len=defaultdict(lambda: defaultdict(list))
-    hip_len=defaultdict(lambda: defaultdict(list))
+    mip_len_disc=defaultdict(lambda: defaultdict(list))
+    hip_len_disc=defaultdict(lambda: defaultdict(list))
     vae = defaultdict(lambda: defaultdict(list))
 
     lam_momentum=defaultdict(lambda: defaultdict(list))
     lam_true_momentum=defaultdict(lambda: defaultdict(list))
+
+
+    lam_true_momentum_disc=defaultdict(lambda: defaultdict(list))
+    pi_true_momentum_disc=defaultdict(lambda: defaultdict(list))
+    prot_true_momentum_disc=defaultdict(lambda: defaultdict(list))
 
     lam_tau0_est=defaultdict(lambda: defaultdict(list))
     lam_tau0_est_fixed=defaultdict(lambda: defaultdict(list))
@@ -217,7 +301,12 @@ def main():
     base_len_vae_disc_perp=defaultdict(lambda: defaultdict(list))
     base_len_vae_disc_parr=defaultdict(lambda: defaultdict(list))
 
+    proj_hip_mip_dist_disc=defaultdict(lambda:defaultdict(list))
+    lam_decay_theta_disc=defaultdict(lambda:defaultdict(list))
+
     sigma_mass=defaultdict(list)
+
+    proj_decay_len_disc=defaultdict(lambda:defaultdict(list))
 
     
     vertex_displacement=[[],[]]
@@ -256,24 +345,10 @@ def main():
         args_list = [(args.single_file, d0, directory2)]
 
 
-        results:list[tuple[str,list[Pred_Neut],list]] = []
+    for args0 in args_list:
+        file0, predl, particles=load_single_file(args0)
 
-    from concurrent.futures import ProcessPoolExecutor, as_completed,ThreadPoolExecutor
-
-    results = []
-    max_cpus = os.cpu_count()
-    # with ProcessPoolExecutor(max_workers=max_cpus) as executor:
-    with ThreadPoolExecutor(max_workers=8) as executor:
-        futures = [executor.submit(load_single_file, arg) for arg in args_list]
-        for future in tqdm(as_completed(futures), total=len(futures)):
-            results.append(future.result())
-
-
-    # for args0 in tqdm(args_list, total=len(args_list)):
-    #     result = load_single_file(args0)
-    #     results.append(result)
-
-    for file0, predl, particles in results:
+    # for file0, predl, particles in results:
         if filecount == 0 and args.single_file=="":
             clear_html_files(LOCAL_EVENT_DISPLAYS)
         # if filecount % 500 == 0:
@@ -307,24 +382,88 @@ def main():
             interactions=particles[2]
 
 
+            valid_ints=[]
 
 
-
-            interaction_pos_dict=defaultdict(list)
+            # interaction_pos_dict=defaultdict(list)
             for I in interactions:
                 i=interactions[I]
                 if is_contained(i[0][:3],margin=margin0):
                     primpdgs=[z for z in i[1].keys() if z[1]==3122]
                     if len(primpdgs):
                         assert len(primpdgs)==1
-                        print("found lambda",primpdgs)
+                        #print("found lambda",primpdgs)
                         testlam=i[1][primpdgs[0]]
-                        ppi=[z for z in testlam if z[0] in [-211, 2212]]
+                        ppi=[z[-1][0] for z in testlam if z[0] in [-211, 2212]]
+
+                        momenta=[z[1] for z in testlam if z[0] in [-211, 2212]]
+                        pdgs=[z[0] for z in testlam if z[0] in [-211, 2212]]
                         if len(ppi)==2:
+                            # print(ppi)
+                            if norm3d(np.array(i[0][:3])-np.array(ppi[0]))<min_len: continue
+
+                            
+                            # 
+                            assert norm3d(np.array(ppi[0])-np.array(ppi[1]))<.0001
+
+                            pion_mom=momenta[np.argwhere(np.array(pdgs)==-211)[0][0]]
+                            proton_mom=momenta[np.argwhere(np.array(pdgs)==2212)[0][0]]
+
+                            theta,cos_theta,lam_mom=decay_angle_from_invariant_mass(pion_mom, proton_mom, PION_MASS, PROT_MASS, LAM_MASS)
+
+                            if (MIN_LAM_MOM>lam_mom) or (lam_mom)>MAX_LAM_MOM: continue
+
+                            if theta<np.pi/12:
+                                continue
+
+
+                            if pion_mom<MIN_PI_MOM:
+                                continue
+                            if proton_mom<MIN_PROT_MOM:
+                                continue
+
+
+
+
+                            cfg = '''
+                                IOManager: {
+                                    Verbosity    : 4
+                                    Name         : "MainIO"
+                                    IOMode       : 0
+                                    InputFiles   : [%s]
+                                }
+                                '''% (find_root_path(file0))
+                            # print(find_root_path(file0))
+                            #"MiniRun5_1E19_RHC.flow.0000001.larcv.root"
+                            # sys.argv[1]
+
+                            # print(file0)
+                            io = load_cfg(cfg)
+
+                            # n_evts = io.get_n_entries()#min(n_max, 10000)
+
+                            io.read_entry(I[0])
+                            truthinfo = io.get_data('particle', 'mpv').as_vector()
+                            nice_primaries=set([x.pdg_code() for x in truthinfo if (x.pdg_code() not in [2112,12,-12,14,-14,3122,22,111,311,-311]) and i[0][:3]==(x.position().x(),x.position().y(),x.position().z())])
+                            io.finalize()
+
+                            if len(nice_primaries)==0:
+                                print("skipped one")
+                                continue
+
+                            elif len(set([13,-13,321,-321,2212,211,-211,11,-11]).intersection(nice_primaries))==0:
+                                raise Exception(nice_primaries)
+                            
+                            
+
+
+
                             print("found valid lambda in truth")
                             add_it=True
                             TrueLambdas+=1
-                            pot_reason=None
+                            valid_ints.append([I[0],I[1]])
+                            # pot_reason=None
+                            # raise Exception(i)
 
                             # print(predl.keys(),I[0])
 
@@ -390,11 +529,20 @@ def main():
                         continue
                     key=l.event_number
 
+                    pc=l.pass_cuts(lam_pass_order)
+                    inter =l.reco_vertex
+                    pc*=is_contained(inter,margin=margin0)
+                    
+
                     inter = l.reco_vertex.astype(np.float64)
 
                     decaylen=np.linalg.norm(l.reco_vertex-(l.hip.start_point+l.mip.start_point)/2)
+                    if ([key,l.truth_interaction_id] in valid_ints):
+                        assert is_contained(l.truth_interaction_vertex,margin=margin0)
 
-                    is_true=l.truth*is_contained(l.truth_interaction_vertex,margin=margin0)
+                    is_true=l.truth*([key,l.truth_interaction_id] in valid_ints)
+
+                    
                     truth_hip=l.truth_hip
                     truth_mip=l.truth_mip
                     # if args.mode=="truth":
@@ -410,12 +558,7 @@ def main():
                     if l.error!="":
                         print("VERY BAD ERROR",key,l.error)
                         quick_save('/error')
-                    # print("event",key)
-                    # if l.true_signal:
-                    #     # print("found a true_signal lambda")
-                    #     lam_mass[2] += [np.sqrt(l.mass2)/LAM_MASS]
-                    # if l.mass2 < 0:
-                    #     print("THIS IS VERY BAD")
+
 
                     fixed_prot_mom=np.float64(l.real_hip_momentum_reco)
                     fixed_pi_mom=np.float64(l.real_mip_momentum_reco)
@@ -423,24 +566,24 @@ def main():
                     if is_true:
                         assert truth_hip is not None
                         assert truth_mip is not None
-                        if len(l.hm_pred): HM_acc_prot += [l.hm_pred[l.hip.id][HIP_HM]/(l.hm_pred[l.hip.id][HIP_HM]+l.hm_pred[l.hip.id][MIP_HM])]
-                        if len(l.hm_pred): HM_acc_pi += [l.hm_pred[l.mip.id][MIP_HM]/(l.hm_pred[l.mip.id][HIP_HM]+l.hm_pred[l.mip.id][MIP_HM])]
-                        prot_primary[int(l.hip.is_primary)]+=[decaylen]
-                        pi_primary[int(l.mip.is_primary)]+=[decaylen]
+                        if len(l.hm_pred): HM_acc_prot.append(l.hm_pred[l.hip.id][HIP_HM]/(l.hm_pred[l.hip.id][HIP_HM]+l.hm_pred[l.hip.id][MIP_HM]))
+                        if len(l.hm_pred): HM_acc_pi.append(l.hm_pred[l.mip.id][MIP_HM]/(l.hm_pred[l.mip.id][HIP_HM]+l.hm_pred[l.mip.id][MIP_HM]))
+                        prot_primary[int(l.hip.is_primary)].append(decaylen)
+                        pi_primary[int(l.mip.is_primary)].append(decaylen)
 
-                        prot_mom[0]+=[np.linalg.norm(fixed_prot_mom)]
-                        prot_mom[1]+=[truth_hip.p]
-                        pi_mom[0]+=[np.linalg.norm(fixed_pi_mom)]
-                        pi_mom[1]+=[truth_mip.p]
+                        prot_mom[0].append(np.linalg.norm(fixed_prot_mom))
+                        prot_mom[1].append(truth_hip.p)
+                        pi_mom[0].append(np.linalg.norm(fixed_pi_mom))
+                        pi_mom[1].append(truth_mip.p)
 
 
-                        pi_dir+=[angle_between(l.mip.momentum,truth_mip.momentum)]
-                        prot_dir+=[angle_between(l.hip.momentum,truth_hip.momentum)]
+                        pi_dir.append(angle_between(l.mip.momentum,truth_mip.momentum))
+                        prot_dir.append(angle_between(l.hip.momentum,truth_hip.momentum))
 
-                        vertex_displacement[0]+=[np.linalg.norm(l.truth_interaction_vertex-inter)]
-                        vertex_dz[0]+=[l.truth_interaction_vertex[2]-inter[2]]
+                        vertex_displacement[0].append(np.linalg.norm(l.truth_interaction_vertex-inter))
+                        vertex_dz[0].append(l.truth_interaction_vertex[2]-inter[2])
 
-                    pc=l.pass_cuts(lam_pass_order)
+                    
 
                     
 
@@ -451,7 +594,7 @@ def main():
 
                     lpf=l.pass_failure[0]
 
-                    # lam_mass[is_true][lpf==""] += [np.sqrt(l.mass2)]#[(l.mass2-PION_MASS**2-PROT_MASS**2)/(LAM_MASS**2-PION_MASS**2-PROT_MASS**2)]
+                    # lam_mass[is_true][lpf==""].append(np.sqrt(l.mass2)]#[(l.mass2-PION_MASS**2-PROT_MASS**2)/(LAM_MASS**2-PION_MASS**2-PROT_MASS**2))
 
 
                     
@@ -467,7 +610,7 @@ def main():
                             primary_phot=[p for p in l.particles if p.is_primary and p.pdg_code==22]
                             for p in primary_phot:
                                 assert type(p)==TruthParticle
-                                sigma_mass[p.ancestor_pdg_code==3212]+=[mom_to_mass(fixed_prot_mom+fixed_pi_mom,p.reco_momentum,LAM_MASS,0)]
+                                sigma_mass[p.ancestor_pdg_code==3212].append(mom_to_mass(fixed_prot_mom+fixed_pi_mom,p.reco_momentum,LAM_MASS,0))
 
 
                     # fixed_prot_E=np.sqrt(np.linalg.norm(fixed_prot_mom)**2+PROT_MASS**2)
@@ -476,29 +619,35 @@ def main():
                     
 
 
-                    lam_mass_fixed[is_true][lpf==""]+=[mom_to_mass(fixed_prot_mom,fixed_pi_mom,PROT_MASS,PION_MASS)]
+                    lam_mass_fixed[is_true][lpf==""].append(mom_to_mass(fixed_prot_mom,fixed_pi_mom,PROT_MASS,PION_MASS))
 
                     if is_true and (lam_mass_fixed[is_true][lpf==""][-1]<1.08*1000 ):
-                        print("MESSED UP MASS",key,l)
+                        print("MESSED UP MASS",key,lfile)
                         quick_save('/error/lowmass')
 
                     if is_true and (lam_mass_fixed[is_true][lpf==""][-1]>1.15*1000 ):
-                        print("MESSED UP MASS",key,l)
+                        print("MESSED UP MASS",key,lfile)
                         quick_save('/error/highmass')
                         
 
                     if not is_true and lpf=="" and np.dot((l.hip.start_point+l.mip.start_point)/2-inter,fixed_prot_mom + fixed_pi_mom)<0:
-                        print("MESSED UP direction",key,l)
+                        print("MESSED UP direction",key,lfile)
                         quick_save('/error/direction')
 
                     if is_true:
                         if np.linalg.norm((l.hip.start_point+l.mip.start_point)/2-inter)>10**7:
-                            print("infinite vertex",key,l)
+                            print("infinite vertex",key,lfile)
                             quick_save('/error/infinite_vertex')
 
 
 
-
+                    if is_true:
+                        if truth_mip is not None and truth_mip.shape==TRACK_SHP and l.mip.reco_length>min_len:
+                            if np.dot(truth_mip.end_point-truth_mip.start_point,l.mip.end_point-l.mip.start_point)<0:
+                                quick_save('/mip_direction/')
+                        if truth_hip is not None and truth_hip.shape==TRACK_SHP and l.hip.reco_length>min_len:
+                            if np.dot(truth_hip.end_point-truth_hip.start_point,l.hip.end_point-l.hip.start_point)<0:
+                                quick_save('/hip_direction/')
 
 
 
@@ -515,6 +664,16 @@ def main():
 
                             if truth_mip.ancestor_pdg_code==3212:
                                 quick_save('/backgrounds/sigma0')
+                            elif truth_hip.ancestor_pdg_code==3112 and truth_mip.ancestor_pdg_code==3112:
+                                quick_save('/backgrounds/sigmaminus')
+                            elif truth_hip.ancestor_pdg_code==311 and truth_mip.ancestor_pdg_code==311:
+                                quick_save('/backgrounds/K0311')
+
+                            elif truth_hip.ancestor_pdg_code!=3122 and truth_mip.ancestor_pdg_code!=3122:
+                                quick_save(f'/backgrounds/unrelated_ancestor_{truth_hip.ancestor_pdg_code}_{truth_mip.ancestor_pdg_code}')
+
+
+
 
                             elif truth_mip.parent_pdg_code==3122 and truth_hip.parent_pdg_code==2212:
                                 quick_save('/backgrounds/missing_proton_parent')
@@ -542,12 +701,10 @@ def main():
                             elif not is_contained(l.truth_interaction_vertex,margin=margin0):
                                 quick_save('/backgrounds/reco_vertex_out_of_bounds')
 
-                            elif truth_hip.ancestor_pdg_code==311 and truth_mip.ancestor_pdg_code==311:
-                                quick_save('/backgrounds/K0311')
-                            elif truth_hip.ancestor_pdg_code==3112 and truth_mip.ancestor_pdg_code==3112:
-                                quick_save('/backgrounds/sigmaminus')
+                            
+                            
 
-                            elif l.truth_interaction_nu_id==-1:
+                            elif l.nu_id==-1:
                                 quick_save('/backgrounds/cosmics')
 
                             elif truth_mip.is_primary and truth_hip.is_primary and truth_hip.shape==TRACK_SHP and truth_mip.shape==TRACK_SHP:
@@ -575,82 +732,50 @@ def main():
                         #     else:
                         #         quick_save('/missing/unknown_'+lpf)
 
-
-
-
-
-
-
-                    ##########################
-
-                
-
-
-                    # momenta[0][0] += [l.momenta[0]]
-                    # momenta[0][1] += [l.momenta[1]]
-
-
-                    ppi_dist=np.linalg.norm(l.hip.start_point-l.mip.start_point)
-                    # ppi_dist=np.min(cdist([l.hip.start_point,l.hip.end_point] ,[l.mip.start_point,l.mip.end_point]))
-                    
-                    lam_decay_len[is_true][lpf==""] += [decaylen]
-                    lam_decay_len_disc_total[is_true][(l.pass_failure==[""])+(l.pass_failure==["Min Decay Len",""])]+=[decaylen]
-                    # lam_dir_acos[is_true][lpf==""] += [l.lam_dir_acos]
+                    def add_to(my_dict,cut,value):
+                        if cut is not None:
+                            if args.mode=="reco":
+                                assert cut in lam_pass_order_reco
+                            elif args.mode=="truth":
+                                assert cut in lam_pass_order_truth
+                            else:
+                                raise Exception(args.mode)
+                        pc_almost=(l.pass_failure==[""]) or (l.pass_failure==[cut,""])
+                        if is_true or pc_almost:
+                            my_dict[is_true][pc_almost].append(value)
                     
 
-                    
+                    add_to(lam_decay_len,None,decaylen)
+                    add_to(lam_decay_len_disc_total,"Min Decay Len",decaylen)
+                    add_to(proj_hip_mip_dist_disc,"Proj Max HIP-MIP Sep.",closest_distance(l.mip.start_point, l.mip.momentum, l.hip.start_point, l.hip.momentum))
+                    add_to(lam_mass_disc_total,None,mom_to_mass(fixed_prot_mom,fixed_pi_mom,PROT_MASS,PION_MASS))
+                    add_to(ProtPi_dist_disc_total,"Max HIP-MIP Sep.",np.linalg.norm(l.hip.start_point-l.mip.start_point))
+                    add_to(vae,None,np.arcsin(l.vae / decaylen if decaylen != 0 else 0))
+                    add_to(hip_len_disc,"HIP Length",l.hip.reco_length)
+
+                    add_to(mip_len_disc,"MIP Length",l.mip.reco_length)
 
 
-                    ProtPi_dist[is_true][lpf==""]+= [ppi_dist]
-
-                    lam_mass_disc_total[is_true][(l.pass_failure==[""])]+=[mom_to_mass(fixed_prot_mom,fixed_pi_mom,PROT_MASS,PION_MASS)]
-
-
-                    ProtPi_dist_disc_total[is_true][(l.pass_failure==[""])+(l.pass_failure==["Max HIP-MIP Sep.",""])]+= [ppi_dist]
-                    
-                    vae[is_true][lpf==""] += [np.arcsin(l.vae / decaylen if decaylen != 0 else 0)]
-                    hip_len[is_true][lpf==""]+=[l.hip.reco_length]
-                    mip_len[is_true][lpf==""]+=[l.mip.reco_length]
                     mom_norm=np.linalg.norm(l.hip.reco_momentum+l.mip.reco_momentum)
-                    # mom_norm=np.linalg.norm(fixed_prot_mom+fixed_pi_mom)
-                    
                     mom_norm_fixed=np.linalg.norm(fixed_prot_mom+fixed_pi_mom)
-                    lam_momentum[is_true][lpf==""]+=[mom_norm_fixed]
-                    lam_true_momentum[is_true][lpf==""]+=[np.linalg.norm(l.hip.momentum+l.mip.momentum)]
 
-                    lam_tau0_est[is_true][lpf==""]+=[decaylen/100/(2.998e8)*LAM_MASS/mom_norm*10**9]
-                    lam_tau0_est_fixed[is_true][lpf==""]+=[decaylen/100/(2.998e8)*LAM_MASS/mom_norm_fixed*10**9]
-
-                    # if lpf=="":print(decaylen/100/(2.998e8)*LAM_MASS/mom_norm*10**9,decaylen/100/(2.998e8)*LAM_MASS/mom_norm_fixed*10**9)
-                    # if is_true:
-                        # print("lam tau est",lam_tau0_est[is_true][lpf==""],decaylen,np.sqrt(l.mass2),mom_norm)
-                    
-                    # print(pc,l.mip.id,l.hip.id)
-
-                    # base_len_vae[is_true][lpf==""]+=[l.vae]
-
-                    # base_len_vae_disc_total[is_true][(l.pass_failure==[""])+(l.pass_failure==["Impact Parameter",""])]+=[decaylen*np.sin(min(l.vae,np.pi/2))]
-
-                    # v1=l.mip.momentum
-                    # v2=l.hip.momentum
-                    # p0=l.mip.start_point
-                    # p=l.interaction.reco_vertex
-
-                    
-                    guess_start=((l.hip.start_point+l.mip.start_point)/2).astype(np.float64)
-                    # guess_start = get_pseudovertex(
-                    #     start_points=np.array([self.hip.start_point, self.mip.start_point], dtype=float),
-                    #     directions=[self.hip.reco_start_dir, self.mip.reco_start_dir],
-                    # )
-                    # assert np.linalg.norm(guess_start-guess_start)==0
-                    vae0=0
-
-                    dir1 = (guess_start - inter).astype(np.float64)
-                    # if not np.isclose(np.linalg.norm(dir1),0):
+                    add_to(lam_momentum,None,mom_norm_fixed)
+                    add_to(lam_true_momentum,None,np.linalg.norm(l.hip.momentum+l.mip.momentum))
 
 
-                    
-                        
+                    if is_true:
+                        assert l.truth_hip is not None
+                        assert l.truth_mip is not None
+                        add_to(lam_true_momentum_disc,None,np.linalg.norm(l.truth_hip.momentum+l.truth_mip.momentum))
+                        add_to(pi_true_momentum_disc,None,np.linalg.norm(l.truth_mip.momentum))
+                        add_to(prot_true_momentum_disc,None,np.linalg.norm(l.truth_hip.momentum))
+                        add_to(lam_decay_theta_disc,None,angle_between(l.truth_hip.momentum,l.truth_mip.momentum))
+
+
+                    add_to(lam_tau0_est,None,decaylen/100/(2.998e8)*LAM_MASS/mom_norm*10**9)
+                    add_to(lam_tau0_est_fixed,None,decaylen/100/(2.998e8)*LAM_MASS/mom_norm_fixed*10**9)
+
+
                     # vae1=0
                     # vae2=0
                     # ret=0
@@ -682,18 +807,17 @@ def main():
                         # # if passed: assert ret == ret,(self.hip.start_point,self.mip.start_point,self.hip.reco_start_dir,self.mip.reco_start_dir,ret,dir1,dir2)
                         # vae=ret
 
-                    base_len_vae_disc_total[is_true][(l.pass_failure==[""])+(l.pass_failure==["Impact Parameter",""])]+=[l.vae]#[decaylen*np.sin(min(ret,np.pi/2))]
+                    add_to(base_len_vae_disc_total,"Impact Parameter",l.vae)
 
-                    # base_len_vae_disc_perp[is_true][(l.pass_failure==[""])+(l.pass_failure==["Impact Parameter","12344lsfdhalsfhk"])]+=[vae1]
-                    # base_len_vae_disc_parr[is_true][(l.pass_failure==[""])+(l.pass_failure==["Impact Parameter","sklhjafklhdfjklhafhjkfshjk"])]+=[vae2]
+                    new_start=closest_point_between_lines(l.mip.start_point,
+                                                      l.mip.end_point-l.mip.start_point,
+                                                      l.hip.start_point,
+                                                      l.hip.end_point-l.hip.start_point)[2]
 
+                    add_to(proj_decay_len_disc,"Min Proj Decay Len",norm3d(new_start-l.reco_vertex))
 
-
-
-
-
-
-
+                    # base_len_vae_disc_perp[is_true][(l.pass_failure==[""])+(l.pass_failure==["Impact Parameter","12344lsfdhalsfhk"])].append(vae1]
+                    # base_len_vae_disc_parr[is_true][(l.pass_failure==[""])+(l.pass_failure==["Impact Parameter","sklhjafklhdfjklhafhjkfshjk"])].append(vae2]
 
                     if not is_true:
                         lam_pass_failure[1][lpf]+=1
@@ -704,8 +828,8 @@ def main():
                         lam_reason_map[0][l.reason]+=1
                         # print("MOMENTUM COMPARISON",l.mip.momentum,l.fi)
 
-                        vertex_displacement[1]+=[np.linalg.norm(l.truth_interaction_vertex-inter)]
-                        vertex_dz[1]+=[l.truth_interaction_vertex[2]-inter[2]]
+                        vertex_displacement[1].append(np.linalg.norm(l.truth_interaction_vertex-inter))
+                        vertex_dz[1].append(l.truth_interaction_vertex[2]-inter[2])
 
                         # current_type_map[l.interaction.current_type]+=1
                         # print("current_type",current_type_map)
@@ -743,64 +867,8 @@ def main():
                         else:
                             quick_save('/true_missed/'+lpf)
                             print("MISSED A GOOD LAMBDA",key,lfile,l.hip.pdg_code, l.pass_failure)
-                        # if l.mass2 < 0:
-                        #     raise Exception("THIS IS VERY BAD")
-                        # if np.linalg.norm(l.interaction.vertex-l.interaction.reco_vertex)>1: print("VERY VERY VERY BAD",np.linalg.norm(l.interaction.vertex-l.interaction.reco_vertex),lfile,key)
-                        # lam_mass[1] += [np.sqrt(l.mass2)/LAM_MASS]#[(l.mass2-PION_MASS**2-PROT_MASS**2)/(LAM_MASS**2-PION_MASS**2-PROT_MASS**2)]
-                        # momenta[1][0] += [l.momenta[0]]
-                        # momenta[1][1] += [l.momenta[1]]
-                        # hip_len[1]+=[l.hip_len]
-                        # mip_len[1]+=[l.mip_len]
-                        # lam_decay_len[1] += [decaylen]
-                        # lam_dir_acos[1] += [l.lam_dir_acos]
-                        # print(l.lam_dir_acos)
-                        # prot_hm_acc[1] += [l.prot_hm_acc]
-                        # HM_acc_pi[1] += [l.pi_hm_acc]
-                        # ProtPi_dist += [l.coll_dist[-1]]
-                        # for prc in l.prot_extra_children:
-                        #     prot_extra_children[0][0] += [prc.dist_to_parent]
-                        #     prot_extra_children[0][1] += [prc.angle_to_parent]
-                        #     if prc.truth:
-                        #         prot_extra_children[1][0] += [prc.dist_to_parent]
-                        #         prot_extra_children[1][1] += [prc.angle_to_parent]
-                        # for pic in l.pi_extra_children:
-                        #     pi_extra_children[0][0] += [pic.dist_to_parent]
-                        #     pi_extra_children[0][1] += [pic.angle_to_parent]
-                        #     if pic.truth:
-                        #         pi_extra_children[1][0] += [pic.dist_to_parent]
-                        #         pi_extra_children[1][1] += [pic.angle_to_parent]
-                        # for lc in l.lam_extra_children:
-                        #     lam_extra_children[0][0] += [lc.dist_to_parent]
-                        #     lam_extra_children[0][1] += [lc.angle_to_parent]
-                        #     if lc.truth:
-                        #         lam_extra_children[1][0] += [lc.dist_to_parent]
-                        #         lam_extra_children[1][1] += [lc.angle_to_parent]
-                        # vae[1] += [l.vae]
-                        # if l.vae>.5: print("bad VAE",l.vae,key)
-                        # print(
-                        #     "true lambda:",
-                        #     key,
-                        #     "    ",
-                        #     np.sqrt(l.mass2)/LAM_MASS,#[(l.mass2-PION_MASS**2-PROT_MASS**2)/(LAM_MASS**2-PION_MASS**2-PROT_MASS**2)]
-                        #     decaylen,
-                        #     l.lam_dir_acos,
-                        #     l.prot_hm_acc,
-                        #     l.pi_hm_acc,
-                        #     # l.coll_dist[-1],
-                        #     # l.momenta[0] / LAM_PT_MAX,
-                        #     l.vae,
-                        #     l.mip_len,
-                        #     l.hip_len,
-                        #     np.linalg.norm(l.hip.start_point-l.mip.start_point)
-                        # )
                         print("")
 
-                    # momenta[1][2]+=[k.momenta[2]]
-                    # if k.AM[2]<.3: print("bad lambda mom?",key)
-        # print("results",[correctlyselectedkaons,selectedkaons,TrueKaons],[correctlyselectedlambdas,selectedlambdas,TrueLambdas])
-        # print("kaon eff/pur",np.divide(correctlyselectedkaons,TrueKaons),np.divide(correctlyselectedkaons,selectedkaons),[correctlyselectedkaons,selectedkaons,TrueKaons])
-        # print("kaon reasons",kaon_reason_map)
-        # print("kaon pass_failure",kaon_pass_failure)
     print("num neutrinos",num_nu_from_file)
     print("lam eff/pur",np.divide(correctlyselectedlambdas,TrueLambdas),np.divide(correctlyselectedlambdas,selectedlambdas),[correctlyselectedlambdas,selectedlambdas,TrueLambdas])
     print("lambda reasons",lam_reason_map)
@@ -941,19 +1009,6 @@ def main():
             [prot_dir, r"Proton $\theta$ from True Dir.", "lam_prot_dir"]]:
         
         print("running",s[2])
-        #prot_primary+=[decaylen]
-                    # pi_primary+=[decaylen]
-
-                    # prot_mom[0]+=[fixed_prot_mom]
-                    # prot_mom[1]+=[truth_hip.p]
-                    # pi_mom[0]+=[fixed_pi_mom]
-                    # pi_mom[1]+=[truth_mip.p]
-
-
-                    # pi_dir+=[angle_between(l.mip.momentum,truth_mip.p)]
-                    # prot_dir+=[angle_between(l.hip.momentum,truth_hip.p)]
-
-        # print(s[0],np.isnan(s[0]))
 
         rmnans=[z for z in s[0] if not np.isnan(z)]
 
@@ -1071,11 +1126,12 @@ def main():
             # [HM_acc_mich, r"Michel HM scores", "michel_HM"],
             # [HM_acc_pi, r"$\Lambda$ $\pi$ HM scores", "lam_HM_pi"],
             # [HM_acc_prot, r"$\Lambda$ Proton HM scores", "lam_HM_prot"],
-            [ProtPi_dist,r"$\Lambda$ p-$\pi$ Proj. dist [cm]","lam_prot_pi_dist"],
+            # [ProtPi_dist,r"$\Lambda$ p-$\pi$ dist [cm]","lam_prot_pi_dist"],
             [lam_decay_len,r"$\Lambda$ Decay Length [cm]","lam_decay_len"],
             # [lam_dir_acos,"Lambda Acos momentum to beam","lam_Acos"],
             [lam_momentum,r"$\Lambda$ Momentum [MeV/c]","lam_mom"],
             [lam_true_momentum,r"Geant4 $\Lambda$ Momentum [MeV/c]","lam_mom_g4"],
+            
             # [base_len_vae,"Impact Parameter [cm]","base_len_vae"]
 
             # [lam_tau0_est,r"$\tau_0=\frac{dx_{decay}m_{est}}{p_{est}}~[ns]$","t0_est"]
@@ -1123,14 +1179,27 @@ def main():
         # [HM_acc_mich, r"Michel HM scores", "michel_HM"],
         # [HM_acc_pi, r"$\Lambda$ Pi HM scores", "lam_HM_pi"],
         # [HM_acc_prot, r"$\Lambda$ Proton HM scores", "lam_HM_prot"],
-        [ProtPi_dist_disc_total,r"$\Lambda$ p-$\pi$ proj. dist [cm]","lam_prot_pi_dist_disc","Max HIP-MIP Sep."],
+        [ProtPi_dist_disc_total,r"$\Lambda$ p-$\pi$ dist [cm]","lam_prot_pi_dist_disc","Max HIP-MIP Sep."],
         [lam_decay_len_disc_total,r"$\Lambda$ decay len [cm]","lam_decay_len_disc","Min Decay Len"],
         # [lam_dir_acos,"Lambda Acos momentum to beam","lam_Acos"],
         # [lam_momentum,"Lambda Momentum [MeV/c]","lam_mom"],
-        # [lam_true_momentum,"Geant4 Lambda Momentum [MeV/c]","lam_mom_g4"],
+        [lam_true_momentum_disc,"Geant4 Lambda Momentum [MeV/c]","lam_mom_g4",None],
+        [pi_true_momentum_disc,r"Geant4 $\pi^-$ Momentum [MeV/c]","pi_mom_g4",None],
+        [prot_true_momentum_disc,"Geant4 Proton Momentum [MeV/c]","prot_mom_g4",None],
+        [lam_decay_theta_disc,"Geant4 Lambda Decay Angle","lam_theta_g4",None],
+        
         [base_len_vae_disc_total,"Impact Parameter [cm]","base_len_vae_disc","Impact Parameter"],
         [base_len_vae_disc_perp,"Perp. Impact Parameter [cm]","base_len_vae_perp","VAE max new"],
         [base_len_vae_disc_parr,"Planar Impact Parameter [cm]","base_len_vae_parr","VAE max new"],
+        [hip_len_disc,"HIP len [cm]","HIP_len_disc","HIP Length"],
+        [mip_len_disc,"MIP len [cm]","MIP_len_disc","MIP Length"],
+        [proj_hip_mip_dist_disc,"Projected HIP-MIP dist [cm]","proj_hip_mip_disc","Proj Max HIP-MIP Sep."],
+
+        [proj_decay_len_disc,"Projected decay len [cm]","proj_decay_len_disc","Min Proj Decay Len"],
+
+        
+
+
         # [lam_mass_disc_total,r"$M_{\Lambda_{candidate}} [MeV]$","lam_mass_disc","lam_mass"]
 
         # [lam_tau0_est,r"$\tau_0=\frac{dx_{decay}m_{est}}{p_{est}}~[ns]$","t0_est"]
@@ -1170,7 +1239,7 @@ def main():
             #################################
 
 
-            mine=np.array(help[0][True][True]+help[0][True][False]+help[0][False][True]+help[0][False][False])
+            mine=np.array(help[0][True][True]+help[0][True][False]+help[0][False][True])
             # if help[3]=="lam_mass":
                 # (n, bins, patches)=plt.hist(mine[mine<=1500], bins=50)
                 # plt.clf()
@@ -1183,12 +1252,19 @@ def main():
                 # pass
                 
             # else:
-            (n, bins, patches)=plt.hist(mine[mine<=10], bins=50)
+            bin_max=np.inf
+            if (help[3] not in ["HIP Length","MIP Length"]) and help[3] is not None:
+                bin_max=10
+            elif (help[3] in ["HIP Length","MIP Length"]):
+                bin_max=65
+
+            (n, bins, patches)=plt.hist(mine[mine<=bin_max], bins=50)
             plt.clf()
             for actual in [False,True]:
                 # print(help[0][actual][True])
                 plt.hist(help[0][actual][True], bins=list(bins), label=f"{actual} after other cuts",alpha=.7)
-            plt.axvline(x=(fakecuts|lam_pass_order)[help[3]], color='red', linestyle='--', linewidth=2, label=f"cut value={(fakecuts|lam_pass_order)[help[3]]}")
+            if help[3] is not None:
+                plt.axvline(x=(fakecuts|lam_pass_order)[help[3]], color='red', linestyle='--', linewidth=2, label=f"cut value={(fakecuts|lam_pass_order)[help[3]]}")
 
                 
                 
@@ -1547,15 +1623,6 @@ def main():
     # plt.xscale("log")
     # plt.yscale("log")
     # plt.clf()
-
-
-
-
-
-    # for key in kaons[1]:
-    #     for k in kaons[1][key]:
-    #         dt+=[k.decay_t/1000]
-    #         ds+=[k.decay_sep*10]
     # print(decay_t_to_dist)
     # decay_t_to_dist=decay_t_to_dist[decay_t_to_dist!=np.inf]
 
@@ -1662,9 +1729,6 @@ def main():
 
     sel_lam=np.zeros(len(columns))
     sel_lam[-1]=lam_pass_failure[0][cols[-1]]+lam_pass_failure[1][cols[-1]]
-
-
-
 
     for c in range(len(columns) - 2, -1, -1):
         sel_lam_F[c]=sel_lam_F[c+1]+lam_pass_failure[1][cols[c]]

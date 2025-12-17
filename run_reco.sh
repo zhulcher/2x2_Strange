@@ -14,9 +14,13 @@ DIR=/sdf/group/neutrino/zhulcher/
 
 # SRC_DIR="/sdf/data/neutrino/icarus/spine/prod/numi_nu_corsika_mix/output_spine"
 
-WORKDIR=/sdf/data/neutrino/zhulcher/grappa_inter_update_250/file_list.txt
-OUTDIR=/sdf/data/neutrino/zhulcher/BNBNUMI/dan_carber3_250_files_reco/
-SRC_DIR="/sdf/data/neutrino/zhulcher/grappa_inter_update_250/output_spine"
+# WORKDIR=/sdf/data/neutrino/zhulcher/grappa_inter_update_250/file_list.txt
+# OUTDIR=/sdf/data/neutrino/zhulcher/BNBNUMI/dan_carber3_250_files_reco/
+# SRC_DIR="/sdf/data/neutrino/zhulcher/grappa_inter_update_250/output_spine"
+
+WORKDIR=/sdf/data/neutrino/zhulcher/grappa_inter_very_large_250/full_file_list_clean.txt
+OUTDIR=/sdf/data/neutrino/zhulcher/BNBNUMI/dan_carber3_very_large_250_files_reco/
+SRC_DIR="/sdf/data/neutrino/zhulcher/grappa_inter_very_large_250/output_spine"
 
 
 
@@ -63,13 +67,20 @@ fi
 
 
 # Loop over each file matching the pattern
+count=0
 for file in "$WORKDIR"*; 
 do
+    
     echo "Reading file: $file"
+    
     
     # Loop over each line inside the file
     while IFS= read -r line; 
     do
+        ((count++))   
+        if (( count < 30500 )); then
+            continue
+        fi
         # echo "Processing: $line"
         # Do something with $line, such as copying, analyzing, etc.
     
@@ -89,18 +100,49 @@ do
 
         if [[ ! -f "$file" ]]; then
             # rm $i/*
-            echo "$file does not exist"
-            sbatch submit_job_larcvHM_reco.sbatch $DIR $i #$line
+            echo "$file does not exist : $count"
+            # if (( count% 3 == 0 )); then
+            #     sbatch --partition=milano submit_job_larcvHM_reco.sbatch $DIR $i #$line
+            # elif (( count% 3 == 1 )); then
+            #     sbatch --partition=roma submit_job_larcvHM_reco.sbatch $DIR $i #$line
+            # else
+            #     sbatch --partition=ampere submit_job_larcvHM_reco.sbatch $DIR $i #$line
+            # fi
+            # -----------------------------------------
+            # Determine least-loaded partition
+            # -----------------------------------------
+            #ampere milano roma turing
+            partitions=(milano)
+            declare -A load
+
+            for p in "${partitions[@]}"; do
+                load[$p]=$(squeue -u zhulcher -h --partition=$p -t pending,running -r | wc -l)
+            done
+
+            # Find the partition with minimum load
+            best_partition="${partitions[0]}"
+            best_value="${load[$best_partition]}"
+
+            for p in "${partitions[@]}"; do
+                if (( load[$p] < best_value )); then
+                    best_partition="$p"
+                    best_value="${load[$p]}"
+                fi
+            done
+
+            echo "Submitting to least-loaded partition: $best_partition  (jobs = $best_value)"
+            sbatch --partition="$best_partition" submit_job_larcvHM_reco.sbatch "$DIR" "$i"
+            
         else 
-        echo "$file found"
-        sbatch submit_job_larcvHM_reco.sbatch $DIR $i #$line
+            echo "$file found : $count"
+            # sbatch submit_job_larcvHM_reco.sbatch $DIR $i #$line
         # continue
         fi
         
         # break
 
         mine=`squeue -u zhulcher  -h -t pending,running -r | wc -l`
-        until (( $mine < 1500 ));
+        until (( $mine < 1000 ));
         do
             echo "still too many jobs there......"
             sleep 15

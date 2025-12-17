@@ -8,8 +8,13 @@ DIR=/sdf/group/neutrino/zhulcher/
 # WORKDIR=/sdf/data/neutrino/icarus/spine/prod/numi_nu_corsika_mix/file_list.txt
 # OUTDIR=/sdf/data/neutrino/zhulcher/BNBNUMI/dan_carber3_larcv_truth/
 
-WORKDIR=/sdf/data/neutrino/zhulcher/grappa_inter_update_500/file_list.txt
-OUTDIR=/sdf/data/neutrino/zhulcher/BNBNUMI/dan_carber3_500_larcv_truth/
+# WORKDIR=/sdf/data/neutrino/zhulcher/grappa_inter_update_500/file_list.txt
+# OUTDIR=/sdf/data/neutrino/zhulcher/BNBNUMI/dan_carber3_500_larcv_truth/
+
+WORKDIR=/sdf/data/neutrino/zhulcher/grappa_inter_very_large_250/full_file_list_clean.txt
+OUTDIR=/sdf/data/neutrino/zhulcher/BNBNUMI/dan_carber3_very_large_250_larcv_truth/
+
+
 
 
 rm -f error/*

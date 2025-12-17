@@ -1,13 +1,10 @@
 from larcv import larcv
 import tempfile
 
-import sys
-import numpy as np
 import os
 from analysis.analysis_cuts import *
 
 from collections import defaultdict,Counter
-import copy
 '''
 
 
